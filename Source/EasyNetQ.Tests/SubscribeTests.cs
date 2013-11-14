@@ -4,6 +4,7 @@ using System;
 using System.Collections;
 using System.Threading;
 using EasyNetQ.Consumer;
+using EasyNetQ.Events;
 using EasyNetQ.Loggers;
 using EasyNetQ.Tests.Mocking;
 using NUnit.Framework;
@@ -18,7 +19,7 @@ namespace EasyNetQ.Tests
     {
         private MockBuilder mockBuilder;
 
-        private const string typeName = "EasyNetQ_Tests_MyMessage:EasyNetQ_Tests";
+        private const string typeName = "EasyNetQ.Tests.MyMessage:EasyNetQ.Tests";
         private const string subscriptionId = "the_subscription_id";
         private const string queueName = typeName + "_" + subscriptionId;
         private const string consumerTag = "the_consumer_tag";
@@ -26,7 +27,7 @@ namespace EasyNetQ.Tests
         [SetUp]
         public void SetUp()
         {
-            var conventions = new Conventions
+            var conventions = new Conventions(new TypeNameSerializer())
                 {
                     ConsumerTagConvention = () => consumerTag
                 };
@@ -102,7 +103,7 @@ namespace EasyNetQ.Tests
     {
         private MockBuilder mockBuilder;
 
-        private const string typeName = "EasyNetQ_Tests_MyMessage:EasyNetQ_Tests";
+        private const string typeName = "EasyNetQ.Tests.MyMessage:EasyNetQ.Tests";
         private const string subscriptionId = "the_subscription_id";
         private const string correlationId = "the_correlation_id";
         private const string consumerTag = "the_consumer_tag";
@@ -114,7 +115,7 @@ namespace EasyNetQ.Tests
         [SetUp]
         public void SetUp()
         {
-            var conventions = new Conventions
+            var conventions = new Conventions(new TypeNameSerializer())
             {
                 ConsumerTagConvention = () => consumerTag
             };
@@ -125,8 +126,7 @@ namespace EasyNetQ.Tests
                 );
 
             var autoResetEvent = new AutoResetEvent(false);
-            var handlerExecutionContext = (HandlerRunner)mockBuilder.ServiceProvider.Resolve<IHandlerRunner>();
-            handlerExecutionContext.SynchronisationAction = () => autoResetEvent.Set();
+            mockBuilder.EventBus.Subscribe<AckEvent>(x => autoResetEvent.Set());
 
             mockBuilder.Bus.Subscribe<MyMessage>(subscriptionId, message =>
             {
@@ -137,7 +137,7 @@ namespace EasyNetQ.Tests
             const string text = "Hello there, I am the text!";
             originalMessage = new MyMessage { Text = text };
 
-            var body = new JsonSerializer().MessageToBytes(originalMessage);
+            var body = new JsonSerializer(new TypeNameSerializer()).MessageToBytes(originalMessage);
 
             // deliver a message
             mockBuilder.Consumers[0].HandleBasicDeliver(
@@ -188,7 +188,7 @@ namespace EasyNetQ.Tests
         private MockBuilder mockBuilder;
         private IConsumerErrorStrategy consumerErrorStrategy;
 
-        private const string typeName = "EasyNetQ_Tests_MyMessage:EasyNetQ_Tests";
+        private const string typeName = "EasyNetQ.Tests.MyMessage:EasyNetQ.Tests";
         private const string subscriptionId = "the_subscription_id";
         private const string correlationId = "the_correlation_id";
         private const string consumerTag = "the_consumer_tag";
@@ -202,7 +202,7 @@ namespace EasyNetQ.Tests
         [SetUp]
         public void SetUp()
         {
-            var conventions = new Conventions
+            var conventions = new Conventions(new TypeNameSerializer())
             {
                 ConsumerTagConvention = () => consumerTag
             };
@@ -232,7 +232,7 @@ namespace EasyNetQ.Tests
             const string text = "Hello there, I am the text!";
             originalMessage = new MyMessage { Text = text };
 
-            var body = new JsonSerializer().MessageToBytes(originalMessage);
+            var body = new JsonSerializer(new TypeNameSerializer()).MessageToBytes(originalMessage);
 
             // deliver a message
             mockBuilder.Consumers[0].HandleBasicDeliver(
@@ -250,8 +250,7 @@ namespace EasyNetQ.Tests
 
             // wait for the subscription thread to handle the message ...
             var autoResetEvent = new AutoResetEvent(false);
-            var handlerExecutionContext = (HandlerRunner)mockBuilder.ServiceProvider.Resolve<IHandlerRunner>();
-            handlerExecutionContext.SynchronisationAction = () => autoResetEvent.Set();
+            mockBuilder.EventBus.Subscribe<AckEvent>(x => autoResetEvent.Set());
             autoResetEvent.WaitOne(1000);
         }
 

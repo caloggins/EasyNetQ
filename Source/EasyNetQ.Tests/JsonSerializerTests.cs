@@ -3,8 +3,6 @@
 using System;
 using System.Collections;
 using System.Text;
-using EasyNetQ.SystemMessages;
-using EasyNetQ.Tests.Integration;
 using NUnit.Framework;
 using RabbitMQ.Client;
 using BasicProperties = RabbitMQ.Client.Framing.v0_8.BasicProperties;
@@ -19,7 +17,7 @@ namespace EasyNetQ.Tests
         [SetUp]
         public void SetUp()
         {
-            serializer = new JsonSerializer();
+            serializer = new JsonSerializer(new TypeNameSerializer());
         }
 
         [Test]
@@ -88,6 +86,17 @@ namespace EasyNetQ.Tests
             var bytes = serializer.MessageToBytes<PolyMessage>(new PolyMessage { AorB = new B() });
 
             var result = serializer.BytesToMessage<PolyMessage>(bytes);
+
+            Assert.IsInstanceOf<B>(result.AorB);
+        }
+
+        [Test]
+        public void Should_be_able_to_serialize_and_deserialize_polymorphic_properties_when_using_TypeNameSerializer()
+        {
+            var typeName = new TypeNameSerializer().Serialize(typeof (PolyMessage));
+
+            var bytes = serializer.MessageToBytes(new PolyMessage { AorB = new B() });
+            var result = (PolyMessage)serializer.BytesToMessage(typeName, bytes);
 
             Assert.IsInstanceOf<B>(result.AorB);
         }

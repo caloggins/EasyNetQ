@@ -13,7 +13,6 @@ namespace EasyNetQ.Consumer
             Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage);
 
         event Action<IInternalConsumer> Cancelled;
-        event Action<ConsumerExecutionContext> AckOrNackWasSent;
     }
 
     public class InternalConsumer : IBasicConsumer, IInternalConsumer
@@ -27,12 +26,10 @@ namespace EasyNetQ.Consumer
         private Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage;
         private IQueue queue;
 
-        public bool IsRunning { get; private set; }
         public IModel Model { get; private set; }
         public string ConsumerTag { get; private set; }
 
         public event Action<IInternalConsumer> Cancelled;
-        public event Action<ConsumerExecutionContext> AckOrNackWasSent;
 
         public InternalConsumer(
             IHandlerRunner handlerRunner, 
@@ -74,10 +71,10 @@ namespace EasyNetQ.Consumer
                 Model.BasicQos(0, connectionConfiguration.PrefetchCount, false);
 
                 Model.BasicConsume(
-                    queue.Name,      // queue
-                    false,          // noAck 
-                    consumerTag,    // consumerTag
-                    this);          // consumer
+                    queue.Name,         // queue
+                    false,              // noAck 
+                    consumerTag,        // consumerTag
+                    this);              // consumer
 
                 logger.InfoWrite("Declared Consumer. queue='{0}', consumer tag='{1}' prefetchcount={2}",
                                   queue.Name, consumerTag, connectionConfiguration.PrefetchCount);
@@ -89,31 +86,21 @@ namespace EasyNetQ.Consumer
             }
         }
 
-        private void Start()
-        {
-            IsRunning = true;
-        }
-
+        /// <summary>
+        /// Cancel means that an external signal has requested that this consumer should
+        /// be cancelled. This is _not_ the same as when an internal consumer stops consuming
+        /// because it has lost its channel/connection.
+        /// </summary>
         private void Cancel()
         {
-            logger.DebugWrite("Consumer {0} cancelled", ConsumerTag);
-            IsRunning = false;
-
             // copy to temp variable to be thread safe.
             var cancelled = Cancelled;
             if(cancelled != null) cancelled(this);
         }
 
-        private void AckOrNackSent(ConsumerExecutionContext context)
-        {
-            var ackOrNackWasSent = AckOrNackWasSent;
-            if (ackOrNackWasSent != null) ackOrNackWasSent(context);
-        }
-
         public void HandleBasicConsumeOk(string consumerTag)
         {
             ConsumerTag = consumerTag;
-            Start();
         }
 
         public void HandleBasicCancelOk(string consumerTag)
@@ -125,12 +112,11 @@ namespace EasyNetQ.Consumer
         {
             Cancel();
             logger.InfoWrite("BasicCancel(Consumer Cancel Notification from broker) event received. " +
-                             "Recreating queue and queue listener. Consumer tag: " + consumerTag);
+                             "Consumer tag: " + consumerTag);
         }
 
         public void HandleModelShutdown(IModel model, ShutdownEventArgs reason)
         {
-            Cancel();
             logger.InfoWrite("Consumer '{0}', consuming from queue '{1}', has shutdown. Reason: '{2}'",
                              ConsumerTag, queue.Name, reason.Cause);
         }
@@ -146,10 +132,10 @@ namespace EasyNetQ.Consumer
         {
             logger.DebugWrite("HandleBasicDeliver on consumer: {0}, deliveryTag: {1}", consumerTag, deliveryTag);
 
-            if (!IsRunning)
+            if (disposed)
             {
                 // this message's consumer has stopped, so just return
-                logger.DebugWrite("Consumer has stopped running. Consumer '{0}' on queue '{1}'. Ignoring message", 
+                logger.InfoWrite("Consumer has stopped running. Consumer '{0}' on queue '{1}'. Ignoring message", 
                     ConsumerTag, queue.Name);
                 return;
             }
@@ -166,15 +152,22 @@ namespace EasyNetQ.Consumer
             var messsageProperties = new MessageProperties(properties);
             var context = new ConsumerExecutionContext(onMessage, messageRecievedInfo, messsageProperties, body, this);
 
-            context.SetPostAckCallback(() => AckOrNackSent(context));
-
             consumerDispatcher.QueueAction(() => handlerRunner.InvokeUserMessageHandler(context));
         }
 
+        private bool disposed;
+
         public void Dispose()
         {
-            Model.Dispose();
-            Cancel();
+            if (disposed) return;
+            disposed = true;
+
+            var model = Model;
+            if (model != null)
+            {
+                // Queued because we may be on the RabbitMQ.Client dispatch thread.
+                consumerDispatcher.QueueAction(() => Model.Dispose());
+            }
         }
     }
 }

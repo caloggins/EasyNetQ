@@ -4,6 +4,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using EasyNetQ.Consumer;
+using EasyNetQ.Events;
 using EasyNetQ.Loggers;
 using NUnit.Framework;
 using RabbitMQ.Client;
@@ -29,18 +30,15 @@ namespace EasyNetQ.Tests.HandlerRunnerTests
 
         private IModel channel;
 
-        private bool postAckCallbackWasRun;
-
         [SetUp]
         public void SetUp()
         {
-            postAckCallbackWasRun = false;
-
             //var logger = new ConsoleLogger();
             var logger = MockRepository.GenerateStub<IEasyNetQLogger>();
             var consumerErrorStrategy = MockRepository.GenerateStub<IConsumerErrorStrategy>();
+            var eventBus = new EventBus();
 
-            handlerRunner = new HandlerRunner(logger, consumerErrorStrategy);
+            handlerRunner = new HandlerRunner(logger, consumerErrorStrategy, eventBus);
 
             Func<byte[], MessageProperties, MessageReceivedInfo, Task> userHandler = (body, properties, info) => 
                 Task.Factory.StartNew(() =>
@@ -57,10 +55,8 @@ namespace EasyNetQ.Tests.HandlerRunnerTests
             var context = new ConsumerExecutionContext(
                 userHandler, messageInfo, messageProperties, messageBody, consumer);
 
-            context.SetPostAckCallback(() => postAckCallbackWasRun = true);
-
             var autoResetEvent = new AutoResetEvent(false);
-            ((HandlerRunner) handlerRunner).SynchronisationAction = () => autoResetEvent.Set();
+            eventBus.Subscribe<AckEvent>(x => autoResetEvent.Set());
 
             handlerRunner.InvokeUserMessageHandler(context);
 
@@ -89,12 +85,6 @@ namespace EasyNetQ.Tests.HandlerRunnerTests
         public void Should_ACK_message()
         {
             channel.AssertWasCalled(x => x.BasicAck(123, false));
-        }
-
-        [Test]
-        public void Should_run_PostAckCallback()
-        {
-            postAckCallbackWasRun.ShouldBeTrue();
         }
     }
 }

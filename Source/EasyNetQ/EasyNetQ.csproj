@@ -30,8 +30,10 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <DocumentationFile>bin\Release\EasyNetQ.xml</DocumentationFile>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="Newtonsoft.Json, Version=4.5.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\packages\Newtonsoft.Json.4.5.11\lib\net40\Newtonsoft.Json.dll</HintPath>
     </Reference>
@@ -50,15 +52,21 @@
     <Compile Include="AmqpExceptions\AmpqExceptionGrammar.cs" />
     <Compile Include="AmqpExceptions\AmqpException.cs" />
     <Compile Include="AutoSubscribe\AutoSubscriber.cs" />
+    <Compile Include="AutoSubscribe\IConsumeAsync.cs" />
     <Compile Include="BusExtensions.cs" />
     <Compile Include="ComponentRegistration.cs" />
     <Compile Include="ConnectionString\ConnectionStringGrammar.cs" />
     <Compile Include="ConnectionString\IConnectionStringParser.cs" />
     <Compile Include="AutoSubscribe\AutoSubscriberConsumerAttribute.cs" />
+    <Compile Include="Consumer\ConsumerCancellation.cs" />
     <Compile Include="Consumer\ConsumerExecutionContext.cs" />
     <Compile Include="Consumer\ConsumerFactory.cs" />
+    <Compile Include="Consumer\HandlerCollection.cs" />
+    <Compile Include="Consumer\HandlerCollectionFactory.cs" />
     <Compile Include="Consumer\IConsumer.cs" />
     <Compile Include="Consumer\IConsumerFactory.cs" />
+    <Compile Include="Consumer\IHandlerCollectionFactory.cs" />
+    <Compile Include="Consumer\IHandlerRegistration.cs" />
     <Compile Include="Consumer\InternalConsumer.cs" />
     <Compile Include="Consumer\InternalConsumerFactory.cs" />
     <Compile Include="Consumer\PersistentConsumer.cs" />
@@ -69,13 +77,14 @@
     <Compile Include="CorrelationIdGenerator.cs" />
     <Compile Include="Consumer\DefaultConsumerErrorStrategy.cs" />
     <Compile Include="AutoSubscribe\DefaultAutoSubscriberMessageDispatcher.cs" />
-    <Compile Include="DefaultMessageValidationStrategy.cs" />
     <Compile Include="DefaultServiceProvider.cs" />
     <Compile Include="Delegates.cs" />
     <Compile Include="EasyNetQException.cs" />
+    <Compile Include="Events\AckEvent.cs" />
     <Compile Include="Events\ConnectionCreatedEvent.cs" />
     <Compile Include="Events\ConnectionDisconnectedEvent.cs" />
     <Compile Include="Events\PublishChannelCreatedEvent.cs" />
+    <Compile Include="Events\StoppedConsumingEvent.cs" />
     <Compile Include="FluentConfiguration\ISubscriptionConfiguration.cs" />
     <Compile Include="Consumer\HandlerRunner.cs" />
     <Compile Include="IAdvancedBus.cs" />
@@ -94,11 +103,11 @@
     <Compile Include="ISaga.cs" />
     <Compile Include="ISerializer.cs" />
     <Compile Include="IServiceProvider.cs" />
-    <Compile Include="IMessageValidationStrategy.cs" />
     <Compile Include="JsonSerializer.cs" />
     <Compile Include="LinqExtensions.cs" />
     <Compile Include="Loggers\ConsoleLogger.cs" />
     <Compile Include="Loggers\DelegateLogger.cs" />
+    <Compile Include="Loggers\NullLogger.cs" />
     <Compile Include="Message.cs" />
     <Compile Include="MessageReceivedInfo.cs" />
     <Compile Include="MessageProperties.cs" />
@@ -111,15 +120,16 @@
     <Compile Include="Producer\IPersistentChannelFactory.cs" />
     <Compile Include="Producer\IPublisherConfirms.cs" />
     <Compile Include="Producer\IPublishExchangeDeclareStrategy.cs" />
+    <Compile Include="Producer\IRpc.cs" />
     <Compile Include="Producer\PersistentChannel.cs" />
     <Compile Include="Producer\PublisherConfirms.cs" />
     <Compile Include="Producer\PublishExchangeDeclareStrategy.cs" />
     <Compile Include="Producer\PublishNackedException.cs" />
+    <Compile Include="Producer\Rpc.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="RabbitAdvancedBus.cs" />
     <Compile Include="RabbitBus.cs" />
     <Compile Include="RabbitHutch.cs" />
-    <Compile Include="Consumer\SingleUseConsumer.cs" />
     <Compile Include="Sprache\Failure.cs" />
     <Compile Include="Sprache\IFailure.cs" />
     <Compile Include="Sprache\Input.cs" />
@@ -132,6 +142,7 @@
     <Compile Include="Sprache\Success.cs" />
     <Compile Include="SystemMessages\Error.cs" />
     <Compile Include="SystemMessages\ScheduleMe.cs" />
+    <Compile Include="TaskHelpers.cs" />
     <Compile Include="Topology\Binding.cs" />
     <Compile Include="Topology\Exchange.cs" />
     <Compile Include="Topology\ExchangeType.cs" />

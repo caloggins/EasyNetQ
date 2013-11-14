@@ -1,5 +1,4 @@
 using System;
-using System.Threading;
 using System.Threading.Tasks;
 using EasyNetQ.FluentConfiguration;
 
@@ -60,7 +59,7 @@ namespace EasyNetQ
         /// recipt is Ack'd. All onMessage delegates are processed on a single thread so you should
         /// avoid long running blocking IO operations. Consider using SubscribeAsync
         /// </param>
-        void Subscribe<T>(string subscriptionId, Action<T> onMessage) where T : class;
+        IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage) where T : class;
 
         /// <summary>
         /// Subscribes to a stream of messages that match a .NET type.
@@ -79,7 +78,7 @@ namespace EasyNetQ
         /// <param name="configure">
         /// Fluent configuration e.g. x => x.WithTopic("uk.london")
         /// </param>
-        void Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
+        IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
             where T : class;
 
         /// <summary>
@@ -97,7 +96,7 @@ namespace EasyNetQ
         /// then continue processing asynchronously. When the Task completes the message will be
         /// Ack'd.
         /// </param>
-        void SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage) where T : class;
+        IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage) where T : class;
 
         /// <summary>
         /// Subscribes to a stream of messages that match a .NET type.
@@ -116,17 +115,17 @@ namespace EasyNetQ
         /// <param name="configure">
         /// Fluent configuration e.g. x => x.WithTopic("uk.london").WithArgument("x-message-ttl", "60")
         /// </param>
-        void SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
+        IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
             where T : class;
 
         /// <summary>
-        /// Makes an RPC style asynchronous request.
+        /// Makes an RPC style request
         /// </summary>
         /// <typeparam name="TRequest">The request type.</typeparam>
         /// <typeparam name="TResponse">The response type.</typeparam>
         /// <param name="request">The request message.</param>
-        /// <param name="onResponse">The action to run when the response is received.</param>
-        void Request<TRequest, TResponse>(TRequest request, Action<TResponse> onResponse)
+        /// <returns>The response</returns>
+        TResponse Request<TRequest, TResponse>(TRequest request)
             where TRequest : class
             where TResponse : class;
 
@@ -136,21 +135,10 @@ namespace EasyNetQ
         /// <typeparam name="TRequest">The request type.</typeparam>
         /// <typeparam name="TResponse">The response type.</typeparam>
         /// <param name="request">The request message.</param>
+        /// <returns>A task that completes when the response returns</returns>
         Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request)
             where TRequest : class
             where TResponse : class;
-
-        /// <summary>
-        /// Makes an RPC style request.
-        /// </summary>
-        /// <typeparam name="TRequest">The request type.</typeparam>
-        /// <typeparam name="TResponse">The response type.</typeparam>
-        /// <param name="request">The request message.</param>
-        /// <param name="token">token that will cancel the RPC</param>
-        Task<TResponse> RequestAsync<TRequest, TResponse>(TRequest request, CancellationToken token)
-            where TRequest : class
-            where TResponse : class;
-
 
         /// <summary>
         /// Responds to an RPC request.
