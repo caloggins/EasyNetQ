@@ -86,6 +86,7 @@
     <Compile Include="ConsumeTests\When_a_consumer_is_cancelled_by_the_broker.cs" />
     <Compile Include="ConsumeTests\When_a_consumer_is_cancelled_by_the_user.cs" />
     <Compile Include="ConsumeTests\When_a_message_is_delivered_to_the_consumer.cs" />
+    <Compile Include="ConsumeTests\When_a_message_is_received.cs" />
     <Compile Include="ConsumeTests\When_a_polymorphic_message_is_delivered_to_the_consumer.cs" />
     <Compile Include="ConsumeTests\When_consume_is_called.cs" />
     <Compile Include="EventBusTests.cs" />
@@ -110,13 +111,16 @@
     <Compile Include="Integration\ExceptionConditionsTests.cs" />
     <Compile Include="Integration\Helpers.cs" />
     <Compile Include="Integration\MultipleHandlerPerConsumerTests.cs" />
+    <Compile Include="Integration\NonGenericExtensionsIntegrationTests.cs" />
     <Compile Include="Integration\PersistentChannelTests.cs" />
     <Compile Include="Integration\PolymorphicPubSub.cs" />
     <Compile Include="Integration\PublisherConfirmsIntegrationTests.cs" />
+    <Compile Include="Integration\SendReceiveIntegrationTests.cs" />
     <Compile Include="JsonSerializerTests.cs" />
     <Compile Include="Mocking\MockBuilder.cs" />
     <Compile Include="ModelCleanupTests.cs" />
     <Compile Include="Integration\MultiThreadedPublisherTests.cs" />
+    <Compile Include="NonGeneric\NonGenericExtensionsTests.cs" />
     <Compile Include="PersistentChannelTests\When_an_action_is_performed_on_a_closed_channel_that_doesnt_open_again.cs" />
     <Compile Include="PersistentChannelTests\When_an_action_is_performed_on_a_closed_channel_that_then_opens.cs" />
     <Compile Include="PersistentChannelTests\When_a_channel_action_is_invoked.cs" />
@@ -126,6 +130,7 @@
     <Compile Include="PersistentConsumerTests\When_the_connection_is_broken.cs" />
     <Compile Include="ProducerTests\PublisherConfirmsTests.cs" />
     <Compile Include="ProducerTests\PublishExchangeDeclareStrategyTests.cs" />
+    <Compile Include="ProducerTests\When_a_message_is_sent.cs" />
     <Compile Include="ProducerTests\When_a_ploymorphic_message_is_sent.cs" />
     <Compile Include="ProducerTests\When_a_request_is_sent.cs" />
     <Compile Include="ProducerTests\When_a_request_is_sent_but_no_reply_is_received.cs" />

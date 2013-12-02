@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using EasyNetQ.Consumer;
 using EasyNetQ.FluentConfiguration;
 
 namespace EasyNetQ
@@ -78,7 +79,7 @@ namespace EasyNetQ
         /// <param name="configure">
         /// Fluent configuration e.g. x => x.WithTopic("uk.london")
         /// </param>
-        IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
+        IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration> configure) 
             where T : class;
 
         /// <summary>
@@ -115,7 +116,7 @@ namespace EasyNetQ
         /// <param name="configure">
         /// Fluent configuration e.g. x => x.WithTopic("uk.london").WithArgument("x-message-ttl", "60")
         /// </param>
-        IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration<T>> configure) 
+        IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration> configure) 
             where T : class;
 
         /// <summary>
@@ -163,6 +164,42 @@ namespace EasyNetQ
         void RespondAsync<TRequest, TResponse>(Func<TRequest, Task<TResponse>> responder) 
             where TRequest : class
             where TResponse : class;
+
+        /// <summary>
+        /// Send a message directly to a queue
+        /// </summary>
+        /// <typeparam name="T">The type of message to send</typeparam>
+        /// <param name="queue">The queue to send to</param>
+        /// <param name="message">The message</param>
+        void Send<T>(string queue, T message) where T : class;
+
+        /// <summary>
+        /// Receive messages from a queue.
+        /// Multiple calls to Receive for the same queue, but with different message types
+        /// will add multiple message handlers to the same consumer.
+        /// </summary>
+        /// <typeparam name="T">The type of message to receive</typeparam>
+        /// <param name="queue">The queue to receive from</param>
+        /// <param name="onMessage">The message handler</param>
+        IDisposable Receive<T>(string queue, Action<T> onMessage) where T : class;
+
+        /// <summary>
+        /// Receive messages from a queue.
+        /// Multiple calls to Receive for the same queue, but with different message types
+        /// will add multiple message handlers to the same consumer.
+        /// </summary>
+        /// <typeparam name="T">The type of message to receive</typeparam>
+        /// <param name="queue">The queue to receive from</param>
+        /// <param name="onMessage">The asychronous message handler</param>
+        IDisposable Receive<T>(string queue, Func<T, Task> onMessage) where T : class;
+
+        /// <summary>
+        /// Receive a message from the specified queue. Dispatch them to the given handlers
+        /// </summary>
+        /// <param name="queue">The queue to take messages from</param>
+        /// <param name="addHandlers">A function to add handlers</param>
+        /// <returns>Consumer cancellation. Call Dispose to stop consuming</returns>
+        IDisposable Receive(string queue, Action<IReceiveRegistration> addHandlers);
 
         /// <summary>
         /// Fires once the bus has connected to a RabbitMQ server.

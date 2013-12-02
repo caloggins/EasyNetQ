@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using EasyNetQ.Consumer;
 using EasyNetQ.FluentConfiguration;
 using EasyNetQ.Producer;
 using EasyNetQ.Topology;
@@ -13,6 +14,7 @@ namespace EasyNetQ
         private readonly IAdvancedBus advancedBus;
         private readonly IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy;
         private readonly IRpc rpc;
+        private readonly ISendReceive sendReceive;
         
         public IEasyNetQLogger Logger
         {
@@ -29,19 +31,22 @@ namespace EasyNetQ
             IConventions conventions,
             IAdvancedBus advancedBus, 
             IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy, 
-            IRpc rpc)
+            IRpc rpc, 
+            ISendReceive sendReceive)
         {
             Preconditions.CheckNotNull(logger, "logger");
             Preconditions.CheckNotNull(conventions, "conventions");
             Preconditions.CheckNotNull(advancedBus, "advancedBus");
             Preconditions.CheckNotNull(publishExchangeDeclareStrategy, "publishExchangeDeclareStrategy");
             Preconditions.CheckNotNull(rpc, "rpc");
+            Preconditions.CheckNotNull(sendReceive, "sendReceive");
 
             this.logger = logger;
             this.conventions = conventions;
             this.advancedBus = advancedBus;
             this.publishExchangeDeclareStrategy = publishExchangeDeclareStrategy;
             this.rpc = rpc;
+            this.sendReceive = sendReceive;
 
             advancedBus.Connected += OnConnected;
             advancedBus.Disconnected += OnDisconnected;
@@ -89,13 +94,13 @@ namespace EasyNetQ
             return Subscribe(subscriptionId, onMessage, x => { });
         }
 
-        public virtual IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration<T>> configure) where T : class
+        public virtual IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration> configure) where T : class
         {
             Preconditions.CheckNotNull(subscriptionId, "subscriptionId");
             Preconditions.CheckNotNull(onMessage, "onMessage");
             Preconditions.CheckNotNull(configure, "configure");
 
-            return SubscribeAsync(subscriptionId, msg =>
+            return SubscribeAsync<T>(subscriptionId, msg =>
             {
                 var tcs = new TaskCompletionSource<object>();
                 try
@@ -117,13 +122,13 @@ namespace EasyNetQ
             return SubscribeAsync(subscriptionId, onMessage, x => { });
         }
 
-        public virtual IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration<T>> configure) where T : class
+        public virtual IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration> configure) where T : class
         {
             Preconditions.CheckNotNull(subscriptionId, "subscriptionId");
             Preconditions.CheckNotNull(onMessage, "onMessage");
             Preconditions.CheckNotNull(configure, "configure");
 
-            var configuration = new SubscriptionConfiguration<T>();
+            var configuration = new SubscriptionConfiguration();
             configure(configuration);
 
             var queueName = conventions.QueueNamingConvention(typeof(T), subscriptionId);
@@ -177,6 +182,29 @@ namespace EasyNetQ
             Preconditions.CheckNotNull(responder, "responder");
             
             rpc.Respond(responder);
+        }
+
+        public void Send<T>(string queue, T message)
+            where T : class
+        {
+            sendReceive.Send(queue, message);
+        }
+
+        public IDisposable Receive<T>(string queue, Action<T> onMessage)
+            where T : class
+        {
+            return sendReceive.Receive(queue, onMessage);
+        }
+
+        public IDisposable Receive<T>(string queue, Func<T, Task> onMessage)
+            where T : class
+        {
+            return sendReceive.Receive(queue, onMessage);
+        }
+
+        public IDisposable Receive(string queue, Action<IReceiveRegistration> addHandlers)
+        {
+            return sendReceive.Receive(queue, addHandlers);
         }
 
         public virtual event Action Connected;

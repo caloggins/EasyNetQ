@@ -9,6 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using EasyNetQ.AutoSubscribe;
+using EasyNetQ.Consumer;
 using EasyNetQ.FluentConfiguration;
 using NUnit.Framework;
 
@@ -226,7 +227,7 @@ namespace EasyNetQ.Tests
                 return null;
             }
 
-            public IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration<T>> configure) where T : class
+            public IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage, Action<ISubscriptionConfiguration> configure) where T : class
             {
                 throw new NotImplementedException();
             }
@@ -239,7 +240,7 @@ namespace EasyNetQ.Tests
                 return null;
             }
 
-            public IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration<T>> configure) where T : class
+            public IDisposable SubscribeAsync<T>(string subscriptionId, Func<T, Task> onMessage, Action<ISubscriptionConfiguration> configure) where T : class
             {
                 throw new NotImplementedException();
             }
@@ -265,6 +266,26 @@ namespace EasyNetQ.Tests
             }
 
             public void RespondAsync<TRequest, TResponse>(Func<TRequest, Task<TResponse>> responder) where TRequest : class where TResponse : class
+            {
+                throw new NotImplementedException();
+            }
+
+            public void Send<T>(string queue, T message) where T : class
+            {
+                throw new NotImplementedException();
+            }
+
+            public IDisposable Receive<T>(string queue, Action<T> onMessage) where T : class
+            {
+                throw new NotImplementedException();
+            }
+
+            public IDisposable Receive<T>(string queue, Func<T, Task> onMessage) where T : class
+            {
+                throw new NotImplementedException();
+            }
+
+            public IDisposable Receive(string queue, Action<IReceiveRegistration> addHandlers)
             {
                 throw new NotImplementedException();
             }
