@@ -210,7 +210,17 @@ namespace EasyNetQ
             CheckNotNull(value, name);
             if (value.Length > 255)
             {
-                throw new ArgumentException(string.Format("Argument {0} must be less than or equal to 255 characters."));
+                throw new ArgumentException(string.Format("Argument '{0}' must be less than or equal to 255 characters.", name));
+            }
+        }
+
+        public static void CheckTypeMatches(Type expectedType, object value, string name, string message)
+        {
+            CheckNotBlank(name, "name", "name must not be blank");
+            CheckNotBlank(message, "message", "message must not be blank");
+            if (!expectedType.IsAssignableFrom(value.GetType()))
+            {
+                throw new ArgumentException(message, name);
             }
         }
     }

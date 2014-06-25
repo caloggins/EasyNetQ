@@ -16,7 +16,6 @@ namespace EasyNetQ.Tests.Mocking
         readonly IBasicProperties basicProperties = new BasicProperties();
         private readonly IEasyNetQLogger logger = MockRepository.GenerateStub<IEasyNetQLogger>();
         private readonly IBus bus;
-        private IServiceProvider serviceProvider;
 
         public const string Host = "my_host";
         public const string VirtualHost = "my_virtual_host";
@@ -59,12 +58,12 @@ namespace EasyNetQ.Tests.Mocking
                     channels.Add(channel);
                     channel.Stub(x => x.CreateBasicProperties()).Return(basicProperties);
                     channel.Stub(x => x.IsOpen).Return(true);
-                    channel.Stub(x => x.BasicConsume(null, false, null, null))
+                    channel.Stub(x => x.BasicConsume(null, false, null, null, null))
                         .IgnoreArguments()
                         .WhenCalled(consumeInvokation =>
                         {
                             var consumerTag = (string)consumeInvokation.Arguments[2];
-                            var consumer = (IBasicConsumer)consumeInvokation.Arguments[3];
+                            var consumer = (IBasicConsumer)consumeInvokation.Arguments[4];
 
                             consumer.HandleBasicConsumeOk(consumerTag);
                             consumers.Add(consumer);
@@ -74,13 +73,13 @@ namespace EasyNetQ.Tests.Mocking
             bus = RabbitHutch.CreateBus(connectionString, x =>
                 {
                     registerServices(x);
-                    x.Register(sp => 
-                    {
-                        serviceProvider = sp;
-                        return connectionFactory;
-                    });
+                    x.Register(_ => connectionFactory);
                     x.Register(_ => logger);
                 });
+
+            bus.ShouldNotBeNull();
+            bus.Advanced.ShouldNotBeNull();
+            bus.Advanced.Container.ShouldNotBeNull();
         }
 
         public IConnectionFactory ConnectionFactory
@@ -120,7 +119,7 @@ namespace EasyNetQ.Tests.Mocking
 
         public IServiceProvider ServiceProvider
         {
-            get { return serviceProvider; }
+            get { return bus.Advanced.Container; }
         }
 
         public IModel NextModel
@@ -130,7 +129,7 @@ namespace EasyNetQ.Tests.Mocking
 
         public IEventBus EventBus
         {
-            get { return serviceProvider.Resolve<IEventBus>(); }
+            get { return ServiceProvider.Resolve<IEventBus>(); }
         }
     }
 }

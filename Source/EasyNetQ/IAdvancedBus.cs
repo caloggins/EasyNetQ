@@ -22,6 +22,17 @@ namespace EasyNetQ
         IDisposable Consume<T>(IQueue queue, Action<IMessage<T>, MessageReceivedInfo> onMessage) where T : class;
 
         /// <summary>
+        /// Consume a stream of messages
+        /// </summary>
+        /// <typeparam name="T">The message type</typeparam>
+        /// <param name="queue">The queue to take messages from</param>
+        /// <param name="onMessage">The message handler</param>
+        /// <param name="configure">
+        /// Fluent configuration e.g. x => x.WithPriority(10)</param>
+        /// <returns>A disposable to cancel the consumer</returns>
+        IDisposable Consume<T>(IQueue queue, Action<IMessage<T>, MessageReceivedInfo> onMessage, Action<IConsumerConfiguration> configure) where T : class;
+
+        /// <summary>
         /// Consume a stream of messages asynchronously
         /// </summary>
         /// <typeparam name="T">The message type</typeparam>
@@ -30,6 +41,18 @@ namespace EasyNetQ
         /// <returns>A disposable to cancel the consumer</returns>
         IDisposable Consume<T>(IQueue queue, Func<IMessage<T>, MessageReceivedInfo, Task> onMessage) where T : class;
 
+
+        /// <summary>
+        /// Consume a stream of messages asynchronously
+        /// </summary>
+        /// <typeparam name="T">The message type</typeparam>
+        /// <param name="queue">The queue to take messages from</param>
+        /// <param name="onMessage">The message handler</param>
+        /// <param name="configure">
+        /// Fluent configuration e.g. x => x.WithPriority(10)</param>
+        /// <returns>A disposable to cancel the consumer</returns>
+        IDisposable Consume<T>(IQueue queue, Func<IMessage<T>, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure) where T : class;
+
         /// <summary>
         /// Consume a stream of messages. Dispatch them to the given handlers
         /// </summary>
@@ -37,6 +60,17 @@ namespace EasyNetQ
         /// <param name="addHandlers">A function to add handlers to the consumer</param>
         /// <returns>A disposable to cancel the consumer</returns>
         IDisposable Consume(IQueue queue, Action<IHandlerRegistration> addHandlers);
+
+        /// <summary>
+        /// Consume a stream of messages. Dispatch them to the given handlers
+        /// </summary>
+        /// <param name="queue">The queue to take messages from</param>
+        /// <param name="addHandlers">A function to add handlers to the consumer</param>
+        /// <param name="configure">
+        /// Fluent configuration e.g. x => x.WithPriority(10)</param>
+        /// <returns>A disposable to cancel the consumer</returns>
+        IDisposable Consume(IQueue queue, Action<IHandlerRegistration> addHandlers, Action<IConsumerConfiguration> configure);
+
 
         /// <summary>
         /// Consume raw bytes from the queue.
@@ -48,6 +82,19 @@ namespace EasyNetQ
         /// </param>
         /// <returns>A disposable to cancel the consumer</returns>
         IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage);
+
+        /// <summary>
+        /// Consume raw bytes from the queue.
+        /// </summary>
+        /// <param name="queue">The queue to subscribe to</param>
+        /// <param name="onMessage">
+        /// The message handler. Takes the message body, message properties and some information about the 
+        /// receive context. Returns a Task.
+        /// </param>
+        /// <param name="configure">
+        /// Fluent configuration e.g. x => x.WithPriority(10)</param>
+        /// <returns>A disposable to cancel the consumer</returns>
+        IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure);
 
         /// <summary>
         /// Publish a message as a byte array
@@ -158,9 +205,7 @@ namespace EasyNetQ
             bool mandatory,
             bool immediate,
             IMessage<T> message) where T : class;
-
-
-
+       
         /// <summary>
         /// Declare a queue. If the queue already exists this method does nothing
         /// </summary>
@@ -172,8 +217,9 @@ namespace EasyNetQ
         /// <param name="autoDelete">If set, the queue is deleted when all consumers have finished using it.</param>
         /// <param name="perQueueTtl">How long a message published to a queue can live before it is discarded by the server.</param>
         /// <param name="expires">Determines how long a queue can remain unused before it is automatically deleted by the server.</param>
+        /// <param name="deadLetterExchange">Determines an exchange's name can remain unused before it is automatically deleted by the server.</param>
         /// <returns>The queue</returns>
-        IQueue QueueDeclare(string name, bool passive = false, bool durable = true, bool exclusive = false, bool autoDelete = false, int perQueueTtl = int.MaxValue, int expires = int.MaxValue);
+        IQueue QueueDeclare(string name, bool passive = false, bool durable = true, bool exclusive = false, bool autoDelete = false, int perQueueTtl = int.MaxValue, int expires = int.MaxValue, string deadLetterExchange = null);
 
         /// <summary>
         /// Declare a transient server named queue. Note, this queue will only last for duration of the
@@ -206,15 +252,10 @@ namespace EasyNetQ
         /// <param name="durable">Durable exchanges remain active when a server restarts.</param>
         /// <param name="autoDelete">If set, the exchange is deleted when all queues have finished using it.</param>
         /// <param name="internal">If set, the exchange may not be used directly by publishers, 
-        /// but only when bound to other exchanges.</param>
+        ///     but only when bound to other exchanges.</param>
+        /// <param name="alternateExchange">Route messages to this exchange if they cannot be routed.</param>
         /// <returns>The exchange</returns>
-        IExchange ExchangeDeclare(
-            string name, 
-            string type, 
-            bool passive = false, 
-            bool durable = true, 
-            bool autoDelete = false, 
-            bool @internal = false);
+        IExchange ExchangeDeclare(string name, string type, bool passive = false, bool durable = true, bool autoDelete = false, bool @internal = false, string alternateExchange = null);
 
         /// <summary>
         /// Delete an exchange
@@ -253,18 +294,6 @@ namespace EasyNetQ
         bool IsConnected { get; }
 
         /// <summary>
-        /// The message serializer
-        /// </summary>
-        ISerializer Serializer { get; }
-
-        /// <summary>
-        /// The connection EasyNetQ maintains to RabbitMQ
-        /// </summary>
-        IPersistentConnection Connection { get; }
-
-        ITypeNameSerializer TypeNameSerializer { get; }
-
-        /// <summary>
         /// Event fires when the bus connects
         /// </summary>
         event Action Connected;
@@ -273,5 +302,15 @@ namespace EasyNetQ
         /// Event fires when the bus disconnects
         /// </summary>
         event Action Disconnected;
+
+        /// <summary>
+        /// Event fires when a mandatory or immediate message is returned as un-routable
+        /// </summary>
+        event Action<byte[], MessageProperties, MessageReturnedInfo> MessageReturned;
+
+        /// <summary>
+        /// The IoC container that EasyNetQ uses to resolve it's services.
+        /// </summary>
+        IContainer Container { get; }
     }
 }

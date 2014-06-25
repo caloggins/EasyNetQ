@@ -17,20 +17,78 @@ namespace EasyNetQ.FluentConfiguration
         /// <param name="topic">The topic to add</param>
         /// <returns></returns>
         ISubscriptionConfiguration WithTopic(string topic);
+
+        /// <summary>
+        /// Configures the queue's durability
+        /// </summary>
+        /// <returns></returns>
+        ISubscriptionConfiguration WithAutoDelete(bool autoDelete = true);
+
+
+        /// <summary>
+        /// Configures the consumer's priority
+        /// </summary>
+        /// <returns></returns>
+        ISubscriptionConfiguration WithPriority(int priority);
+
+        /// <summary>
+        /// Configures the consumer's x-cancel-on-ha-failover attribute
+        /// </summary>
+        /// <returns></returns>
+        ISubscriptionConfiguration WithCancelOnHaFailover(bool cancelOnHaFailover = true);
+
+
+        /// <summary>
+        /// Configures the consumer's prefetch count
+        /// </summary>
+        /// <returns></returns>
+        ISubscriptionConfiguration WithPrefetchCount(ushort prefetchCount);
     }
 
     public class SubscriptionConfiguration : ISubscriptionConfiguration
     {
         public IList<string> Topics { get; private set; }
+        public bool AutoDelete { get; private set; }
+        public int Priority { get; private set; }
+        public bool CancelOnHaFailover { get; private set; }
+        public ushort PrefetchCount { get; private set; }
 
-        public SubscriptionConfiguration()
+        public SubscriptionConfiguration(ushort defaultPrefetchCount)
         {
             Topics = new List<string>();
+            AutoDelete = false;
+            Priority = 0;
+            CancelOnHaFailover = false;
+            PrefetchCount = defaultPrefetchCount;
         }
 
         public ISubscriptionConfiguration WithTopic(string topic)
         {
             Topics.Add(topic);
+            return this;
+        }
+
+        public ISubscriptionConfiguration WithAutoDelete(bool autoDelete = true)
+        {
+            AutoDelete = autoDelete;
+            return this;
+        }
+
+        public ISubscriptionConfiguration WithPriority(int priority)
+        {
+            Priority = priority;
+            return this;
+        }
+
+        public ISubscriptionConfiguration WithCancelOnHaFailover(bool cancelOnHaFailover = true)
+        {
+            CancelOnHaFailover = cancelOnHaFailover;
+            return this;
+        }
+
+        public ISubscriptionConfiguration WithPrefetchCount(ushort prefetchCount)
+        {
+            PrefetchCount = prefetchCount;
             return this;
         }
     }

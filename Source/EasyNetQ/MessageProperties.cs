@@ -1,4 +1,5 @@
-﻿using System.Linq;
+﻿using System.Collections.Generic;
+using System.Linq;
 using System.Collections;
 using System.Text;
 using RabbitMQ.Client;
@@ -9,7 +10,7 @@ namespace EasyNetQ
     {
         public MessageProperties()
         {
-            Headers = new Hashtable();
+            Headers = new Dictionary<string, object>();
         }
 
         public MessageProperties(IBasicProperties basicProperties)
@@ -38,7 +39,7 @@ namespace EasyNetQ
 
             if (basicProperties.IsHeadersPresent())
             {
-                foreach (DictionaryEntry header in basicProperties.Headers)
+                foreach (var header in basicProperties.Headers)
                 {
                     Headers.Add(header.Key, header.Value);
                 }
@@ -65,7 +66,7 @@ namespace EasyNetQ
 
             if (headersPresent)
             {
-                basicProperties.Headers = new Hashtable(Headers);
+                basicProperties.Headers = new Dictionary<string, object>(Headers);
             }
         }
 
@@ -92,7 +93,7 @@ namespace EasyNetQ
         public string ContentType
         {
             get { return contentType; }
-            set { contentType = value; contentTypePresent = true; }
+            set { contentType = CheckShortString(value, "ContentType"); contentTypePresent = true; }
         }
 
         private string contentEncoding;
@@ -103,15 +104,15 @@ namespace EasyNetQ
         public string ContentEncoding
         {
             get { return contentEncoding; }
-            set { contentEncoding = value; contentEncodingPresent = true; }
+            set { contentEncoding = CheckShortString(value, "ContentEncoding"); contentEncodingPresent = true; }
         }
 
-        private IDictionary headers;
+        private IDictionary<string, object> headers;
 
         /// <summary>
         /// message header field table 
         /// </summary>
-        public IDictionary Headers
+        public IDictionary<string, object> Headers
         {
             get { return headers; }
             set { headers = value; headersPresent = true; }
@@ -147,7 +148,7 @@ namespace EasyNetQ
         public string CorrelationId
         {
             get { return correlationId; }
-            set { correlationId = value; correlationIdPresent = true; }
+            set { correlationId = CheckShortString(value, "CorrelationId"); correlationIdPresent = true; }
         }
 
         private string replyTo;
@@ -158,7 +159,7 @@ namespace EasyNetQ
         public string ReplyTo
         {
             get { return replyTo; }
-            set { replyTo = value; replyToPresent = true; }
+            set { replyTo = CheckShortString(value, "ReplyTo"); replyToPresent = true; }
         }
 
         private string expiration;
@@ -169,7 +170,7 @@ namespace EasyNetQ
         public string Expiration
         {
             get { return expiration; }
-            set { expiration = value; expirationPresent = true; }
+            set { expiration = CheckShortString(value, "Expiration"); expirationPresent = true; }
         }
 
         private string messageId;
@@ -180,7 +181,7 @@ namespace EasyNetQ
         public string MessageId
         {
             get { return messageId; }
-            set { messageId = value; messageIdPresent = true; }
+            set { messageId = CheckShortString(value, "MessageId"); messageIdPresent = true; }
         }
 
         private long timestamp;
@@ -202,7 +203,7 @@ namespace EasyNetQ
         public string Type
         {
             get { return type; }
-            set { type = value; typePresent = true; }
+            set { type = CheckShortString(value, "Type"); typePresent = true; }
         }
 
         private string userId;
@@ -213,7 +214,7 @@ namespace EasyNetQ
         public string UserId
         {
             get { return userId; }
-            set { userId = value; userIdPresent = true; }
+            set { userId = CheckShortString(value, "UserId"); userIdPresent = true; }
         }
 
         private string appId;
@@ -224,7 +225,7 @@ namespace EasyNetQ
         public string AppId
         {
             get { return appId; }
-            set { appId = value; appIdPresent = true; }
+            set { appId = CheckShortString(value, "AppId"); appIdPresent = true; }
         }
 
         private string clusterId;
@@ -235,7 +236,7 @@ namespace EasyNetQ
         public string ClusterId
         {
             get { return clusterId; }
-            set { clusterId = value; clusterIdPresent = true; }
+            set { clusterId = CheckShortString(value, "ClusterId"); clusterIdPresent = true; }
         }
 
         public bool ContentTypePresent
@@ -340,7 +341,7 @@ namespace EasyNetQ
         {
             if (value == null) return "NULL";
 
-            var dictionary = value as IDictionary;
+            var dictionary = value as IDictionary<string, object>;
             if (dictionary == null) return value.ToString();
 
             var stringBuilder = new StringBuilder();
@@ -357,6 +358,19 @@ namespace EasyNetQ
                     });
 
             return stringBuilder.ToString();
+        }
+
+        private string CheckShortString(string input, string name)
+        {
+            if (input == null) return null;
+
+            if (input.Length > 255)
+            {
+                throw new EasyNetQException("Exceeded maximum length of basic properties field '{0}'. Value: '{1}'",
+                    name, input);
+            }
+
+            return input;
         }
     }
 }

@@ -76,6 +76,58 @@ namespace EasyNetQ.Tests
         }
 	}
 
+    [TestFixture]
+    public class When_using_QueueAttribute
+    {
+        private Conventions conventions;
+        private ITypeNameSerializer typeNameSerializer;
+
+        [SetUp]
+        public void SetUp()
+        {
+            typeNameSerializer = new TypeNameSerializer();
+            conventions = new Conventions(typeNameSerializer);
+        }
+
+        [Test]
+        public void The_queue_naming_convention_should_use_attribute_queueName_then_an_underscore_then_the_subscription_id()
+        {
+            const string subscriptionId = "test";
+            var result = conventions.QueueNamingConvention(typeof(AnnotatedTestMessage), subscriptionId);
+            result.ShouldEqual("MyQueue" + "_" + subscriptionId);
+        }
+
+        [Test]
+        public void And_subscription_id_is_empty_the_queue_naming_convention_should_use_attribute_queueName()
+        {
+            const string subscriptionId = "";
+            var result = conventions.QueueNamingConvention(typeof(AnnotatedTestMessage), subscriptionId);
+            result.ShouldEqual("MyQueue");
+        }
+
+        [Test]
+        public void And_queueName_is_empty_should_use_the_TypeNameSerializers_Serialize_method_then_an_underscore_then_the_subscription_id()
+        {
+            const string subscriptionId = "test";
+            var result = conventions.QueueNamingConvention(typeof(EmptyQueueNameAnnotatedTestMessage), subscriptionId);
+            result.ShouldEqual(typeNameSerializer.Serialize(typeof(EmptyQueueNameAnnotatedTestMessage)) + "_" + subscriptionId);
+        }
+
+        [Test]
+        public void The_exchange_name_convention_should_use_attribute_exchangeName()
+        {
+            var result = conventions.ExchangeNamingConvention(typeof(AnnotatedTestMessage));
+            result.ShouldEqual("MyExchange");
+        }
+
+        [Test]
+        public void And_exchangeName_not_specified_the_exchange_name_convention_should_use_the_TypeNameSerializers_Serialize_method()
+        {
+            var result = conventions.ExchangeNamingConvention(typeof(QueueNameOnlyAnnotatedTestMessage));
+            result.ShouldEqual(typeNameSerializer.Serialize(typeof(QueueNameOnlyAnnotatedTestMessage)));
+        }
+    }
+
 	[TestFixture]
 	public class When_publishing_a_message
 	{
@@ -175,6 +227,8 @@ namespace EasyNetQ.Tests
     {
         private DefaultConsumerErrorStrategy errorStrategy;
         private MockBuilder mockBuilder;
+        private AckStrategy errorAckStrategy;
+        private AckStrategy cancelAckStrategy;
 
         [SetUp]
         public void SetUp()
@@ -211,7 +265,8 @@ namespace EasyNetQ.Tests
 
             try
             {
-                errorStrategy.HandleConsumerError(context, new Exception());
+                errorAckStrategy = errorStrategy.HandleConsumerError(context, new Exception());
+                cancelAckStrategy = errorStrategy.HandleConsumerCancelled(context);
             }
             catch (Exception)
             {
@@ -231,6 +286,18 @@ namespace EasyNetQ.Tests
         {
             mockBuilder.Channels[0].AssertWasCalled(x => 
                 x.QueueDeclare("CustomEasyNetQErrorQueueName", true, false, false, null));
+        }
+
+        [Test]
+        public void Should_Ack_failed_message()
+        {
+            Assert.AreSame(AckStrategies.Ack, errorAckStrategy);
+        }
+        
+        [Test]
+        public void Should_Ack_canceled_message()
+        {
+            Assert.AreSame(AckStrategies.Ack, cancelAckStrategy);
         }
     }
 }

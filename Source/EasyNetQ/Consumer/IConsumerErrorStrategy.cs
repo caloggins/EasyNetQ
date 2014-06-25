@@ -10,21 +10,15 @@ namespace EasyNetQ.Consumer
         /// </summary>
         /// <param name="context">The consumer execution context.</param>
         /// <param name="exception">The exception</param>
-        void HandleConsumerError(ConsumerExecutionContext context, Exception exception);
+        /// <returns><see cref="AckStrategy"/> for processing the original failed message</returns>
+        AckStrategy HandleConsumerError(ConsumerExecutionContext context, Exception exception);
 
         /// <summary>
-        /// Should the message be ack'd after HandleConsumerError has been run. Return
-        /// true if it should be ack'd, false if it shouldn't
+        /// This method is fired when the task returned from the UserHandler is cancelled. 
+        /// Implement a strategy for handling the cancellation here.
         /// </summary>
-        /// <returns></returns>
-        PostExceptionAckStrategy PostExceptionAckStrategy();
-    }
-
-    public enum PostExceptionAckStrategy
-    {
-        ShouldAck,
-        ShouldNackWithoutRequeue,
-        ShouldNackWithRequeue,
-        DoNothing
+        /// <param name="context">The consumer execution context.</param>
+        /// <returns><see cref="AckStrategy"/> for processing the original cancelled message</returns>
+        AckStrategy HandleConsumerCancelled(ConsumerExecutionContext context);
     }
 }

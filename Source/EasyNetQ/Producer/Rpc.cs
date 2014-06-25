@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using EasyNetQ.Events;
@@ -12,21 +13,24 @@ namespace EasyNetQ.Producer
     /// </summary>
     public class Rpc : IRpc
     {
-        private readonly IAdvancedBus advancedBus;
-        private readonly IConventions conventions;
-        private readonly IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy;
-        private readonly IConnectionConfiguration configuration;
+        protected readonly IAdvancedBus advancedBus;
+        protected readonly IConventions conventions;
+        protected readonly IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy;
+        protected readonly IConnectionConfiguration configuration;
 
         private readonly ConcurrentDictionary<RpcKey, string> responseQueues = new ConcurrentDictionary<RpcKey, string>();
         private readonly ConcurrentDictionary<string, ResponseAction> responseActions = new ConcurrentDictionary<string, ResponseAction>();
 
-        private readonly TimeSpan disablePeriodicSignaling = TimeSpan.FromMilliseconds(-1);
+        protected readonly TimeSpan disablePeriodicSignaling = TimeSpan.FromMilliseconds(-1);
+
+        protected const string IsFaultedKey = "IsFaulted";
+        protected const string ExceptionMessageKey = "ExceptionMessage";
 
         public Rpc(
-            IAdvancedBus advancedBus, 
-            IEventBus eventBus, 
-            IConventions conventions, 
-            IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy, 
+            IAdvancedBus advancedBus,
+            IEventBus eventBus,
+            IConventions conventions,
+            IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy,
             IConnectionConfiguration configuration)
         {
             Preconditions.CheckNotNull(advancedBus, "advancedBus");
@@ -56,8 +60,8 @@ namespace EasyNetQ.Producer
             }
         }
 
-        public Task<TResponse> Request<TRequest, TResponse>(TRequest request) 
-            where TRequest : class 
+        public virtual Task<TResponse> Request<TRequest, TResponse>(TRequest request)
+            where TRequest : class
             where TResponse : class
         {
             Preconditions.CheckNotNull(request, "request");
@@ -74,28 +78,59 @@ namespace EasyNetQ.Producer
 
             timer.Change(TimeSpan.FromSeconds(configuration.Timeout), disablePeriodicSignaling);
 
-            responseActions.TryAdd(correlationId.ToString(), new ResponseAction
-            {
-                OnSuccess = message =>
-                    {
-                        timer.Dispose();
-                        tcs.TrySetResult(((Message<TResponse>) message).Body);
-                    },
-                OnFailure = () =>
-                    {
-                        timer.Dispose();
-                        tcs.TrySetException(new EasyNetQException(
-                            "Connection lost while request was in-flight. CorrelationId: {0}", correlationId.ToString()));
-                    }
-            });
+            RegisterErrorHandling(correlationId, timer, tcs);
 
             var queueName = SubscribeToResponse<TRequest, TResponse>();
-            RequestPublish(request, queueName, correlationId);
+            var routingKey = conventions.RpcRoutingKeyNamingConvention(typeof(TRequest));
+            RequestPublish(request, routingKey, queueName, correlationId);
 
             return tcs.Task;
         }
 
-        private string SubscribeToResponse<TRequest, TResponse>()
+        protected void RegisterErrorHandling<TResponse>(Guid correlationId, Timer timer, TaskCompletionSource<TResponse> tcs) 
+            where TResponse : class
+        {
+            responseActions.TryAdd(correlationId.ToString(), new ResponseAction
+            {
+                OnSuccess = message =>
+                {
+                    timer.Dispose();
+
+                    var msg = ((Message<TResponse>)message);
+
+                    bool isFaulted = false;
+                    string exceptionMessage = "The exception message has not been specified.";
+                    if(msg.Properties.HeadersPresent)
+                    {
+                        if(msg.Properties.Headers.ContainsKey(IsFaultedKey))
+                        {
+                            isFaulted = Convert.ToBoolean(msg.Properties.Headers[IsFaultedKey]);
+                        }
+                        if(msg.Properties.Headers.ContainsKey(ExceptionMessageKey))
+                        {
+                            exceptionMessage = Encoding.UTF8.GetString((byte[])msg.Properties.Headers[ExceptionMessageKey]);
+                        }
+                    }
+
+                    if(isFaulted)
+                    {
+                        tcs.TrySetException(new EasyNetQResponderException(exceptionMessage));
+                    }
+                    else
+                    {
+                        tcs.TrySetResult(msg.Body);
+                    }
+                },
+                OnFailure = () =>
+                {
+                    timer.Dispose();
+                    tcs.TrySetException(new EasyNetQException(
+                        "Connection lost while request was in-flight. CorrelationId: {0}", correlationId.ToString()));
+                }
+            });
+        }
+
+        protected virtual string SubscribeToResponse<TRequest, TResponse>()
             where TResponse : class
         {
             var rpcKey = new RpcKey {Request = typeof (TRequest), Response = typeof (TResponse)};
@@ -110,7 +145,7 @@ namespace EasyNetQ.Producer
                             exclusive: true,
                             autoDelete: true);
 
-                        advancedBus.Consume<TResponse>(queue, (message, messageRecievedInfo) => Task.Factory.StartNew(() =>
+                        advancedBus.Consume<TResponse>(queue, (message, messageReceivedInfo) => Task.Factory.StartNew(() =>
                             {
                                 ResponseAction responseAction;
                                 if(responseActions.TryRemove(message.Properties.CorrelationId, out responseAction))
@@ -126,21 +161,21 @@ namespace EasyNetQ.Producer
             return responseQueues[rpcKey];
         }
 
-        private struct RpcKey
+        protected struct RpcKey
         {
             public Type Request;
             public Type Response;
         }
 
-        private class ResponseAction
+        protected class ResponseAction
         {
             public Action<object> OnSuccess { get; set; }
             public Action OnFailure { get; set; }
         }
 
-        private void RequestPublish<TRequest>(TRequest request, string returnQueueName, Guid correlationId) where TRequest : class
+        protected virtual void RequestPublish<TRequest>(TRequest request, string routingKey, string returnQueueName, Guid correlationId)
+            where TRequest : class
         {
-            var routingKey = conventions.RpcRoutingKeyNamingConvention(typeof(TRequest));
             var exchange = publishExchangeDeclareStrategy.DeclareExchange(
                 advancedBus, conventions.RpcExchangeNamingConvention(), ExchangeType.Direct);
 
@@ -152,8 +187,8 @@ namespace EasyNetQ.Producer
             advancedBus.Publish(exchange, routingKey, false, false, requestMessage);
         }
 
-        public void Respond<TRequest, TResponse>(Func<TRequest, Task<TResponse>> responder) 
-            where TRequest : class 
+        public virtual IDisposable Respond<TRequest, TResponse>(Func<TRequest, Task<TResponse>> responder)
+            where TRequest : class
             where TResponse : class
         {
             Preconditions.CheckNotNull(responder, "responder");
@@ -164,31 +199,42 @@ namespace EasyNetQ.Producer
             var queue = advancedBus.QueueDeclare(routingKey);
             advancedBus.Bind(exchange, queue, routingKey);
 
-            advancedBus.Consume<TRequest>(queue, (requestMessage, messageRecievedInfo) =>
+            return advancedBus.Consume<TRequest>(queue, (requestMessage, messageRecievedInfo) => ExecuteResponder(responder, requestMessage));
+        }
+
+        protected Task ExecuteResponder<TRequest, TResponse>(Func<TRequest, Task<TResponse>> responder, IMessage<TRequest> requestMessage) 
+            where TRequest : class 
+            where TResponse : class
+        {
+            var tcs = new TaskCompletionSource<object>();
+
+            responder(requestMessage.Body).ContinueWith(task =>
+            {
+                if(task.IsFaulted)
                 {
-                    var tcs = new TaskCompletionSource<object>();
+                    if(task.Exception != null)
+                    {
+                        var body = Activator.CreateInstance<TResponse>();
+                        var responseMessage = new Message<TResponse>(body);
+                        responseMessage.Properties.Headers.Add(IsFaultedKey, true);
+                        responseMessage.Properties.Headers.Add(ExceptionMessageKey, task.Exception.InnerException.Message);
+                        responseMessage.Properties.CorrelationId = requestMessage.Properties.CorrelationId;
 
-                    responder(requestMessage.Body).ContinueWith(task =>
-                        {
-                            if (task.IsFaulted)
-                            {
-                                if (task.Exception != null)
-                                {
-                                    tcs.SetException(task.Exception);
-                                }
-                            }
-                            else
-                            {
-                                var responseMessage = new Message<TResponse>(task.Result);
-                                responseMessage.Properties.CorrelationId = requestMessage.Properties.CorrelationId;
+                        advancedBus.Publish(Exchange.GetDefault(), requestMessage.Properties.ReplyTo, false, false, responseMessage);
+                        tcs.SetException(task.Exception);
+                    }
+                }
+                else
+                {
+                    var responseMessage = new Message<TResponse>(task.Result);
+                    responseMessage.Properties.CorrelationId = requestMessage.Properties.CorrelationId;
 
-                                advancedBus.Publish(Exchange.GetDefault(), requestMessage.Properties.ReplyTo, false, false, responseMessage);
-                                tcs.SetResult(null);
-                            }
-                        });
+                    advancedBus.Publish(Exchange.GetDefault(), requestMessage.Properties.ReplyTo, false, false, responseMessage);
+                    tcs.SetResult(null);
+                }
+            });
 
-                    return tcs.Task;
-                });
+            return tcs.Task;
         }
     }
 }

@@ -1,6 +1,8 @@
-﻿// ReSharper disable InconsistentNaming
-
-using System.Collections;
+﻿using System.Collections.Generic;
+// ReSharper disable InconsistentNaming
+using System;
+using System.Linq;
+using System.Reflection;
 using System.Text;
 using NUnit.Framework;
 using RabbitMQ.Client.Framing.v0_9_1;
@@ -53,7 +55,7 @@ namespace EasyNetQ.Tests
                 "UserId=userid, AppId=app_id, ClusterId=cluster_id";
 
             var stringBuilder = new StringBuilder();
-            var headers = new Hashtable
+            var headers = new Dictionary<string, object>
                 {
                     {"key1", "value1"},
                     {"key2", "value2"}
@@ -80,6 +82,39 @@ namespace EasyNetQ.Tests
             properties.AppendPropertyDebugStringTo(stringBuilder);
 
             stringBuilder.ToString().ShouldEqual(expectedDebugProperties);
+        }
+
+        [Test]
+        public void Should_throw_if_any_string_property_exceeds_255_chars()
+        {
+            var longInput = new String('*', 256);
+
+            var properties = new MessageProperties();
+            var stringFields = properties.GetType().GetProperties().Where(x => x.PropertyType == typeof (String));
+            foreach (var propertyInfo in stringFields)
+            {
+                var threw = false;
+                try
+                {
+                    propertyInfo.SetValue(properties, longInput, new object[0]);
+                }
+                catch (TargetInvocationException exception)
+                {
+                    if (exception.InnerException is EasyNetQException)
+                    {
+                        // Console.Out.WriteLine(exception.InnerException.Message);
+                        threw = true;
+                    }
+                    else
+                    {
+                        throw;
+                    }
+                }
+                if (!threw)
+                {
+                    Assert.Fail("Over length property set didn't fail");
+                }
+            }
         }
     }
 }

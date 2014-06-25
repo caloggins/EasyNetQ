@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using System.Threading.Tasks;
@@ -12,142 +11,141 @@ namespace EasyNetQ
 {
     public class RabbitAdvancedBus : IAdvancedBus
     {
-        private readonly ISerializer serializer;
         private readonly IConsumerFactory consumerFactory;
         private readonly IEasyNetQLogger logger;
-        private readonly Func<string> getCorrelationId;
         private readonly IPersistentConnection connection;
         private readonly IClientCommandDispatcher clientCommandDispatcher;
-        private readonly IPublisherConfirms publisherConfirms;
+        private readonly IPublisher publisher;
         private readonly IEventBus eventBus;
-        private readonly ITypeNameSerializer typeNameSerializer;
         private readonly IHandlerCollectionFactory handlerCollectionFactory;
+        private readonly IContainer container;
+        private readonly IConnectionConfiguration connectionConfiguration;
+        private readonly IMessageSerializationStrategy messageSerializationStrategy;
 
         public RabbitAdvancedBus(
             IConnectionFactory connectionFactory,
-            ISerializer serializer, 
             IConsumerFactory consumerFactory,
-            IEasyNetQLogger logger, 
-            Func<string> getCorrelationId, 
-            IClientCommandDispatcherFactory clientCommandDispatcherFactory, 
-            IPublisherConfirms publisherConfirms,
-            IEventBus eventBus, 
-            ITypeNameSerializer typeNameSerializer, 
-            IHandlerCollectionFactory handlerCollectionFactory)
+            IEasyNetQLogger logger,
+            IClientCommandDispatcherFactory clientCommandDispatcherFactory,
+            IPublisher publisher,
+            IEventBus eventBus,
+            IHandlerCollectionFactory handlerCollectionFactory,
+            IContainer container,
+            IConnectionConfiguration connectionConfiguration,
+            IMessageSerializationStrategy messageSerializationStrategy)
         {
             Preconditions.CheckNotNull(connectionFactory, "connectionFactory");
-            Preconditions.CheckNotNull(serializer, "serializer");
             Preconditions.CheckNotNull(consumerFactory, "consumerFactory");
             Preconditions.CheckNotNull(logger, "logger");
-            Preconditions.CheckNotNull(getCorrelationId, "getCorrelationId");
-            Preconditions.CheckNotNull(publisherConfirms, "publisherConfirms");
+            Preconditions.CheckNotNull(publisher, "publisher");
             Preconditions.CheckNotNull(eventBus, "eventBus");
-            Preconditions.CheckNotNull(typeNameSerializer, "typeNameSerializer");
             Preconditions.CheckNotNull(handlerCollectionFactory, "handlerCollectionFactory");
+            Preconditions.CheckNotNull(container, "container");
+            Preconditions.CheckNotNull(messageSerializationStrategy, "messageSerializationStrategy");
+            Preconditions.CheckNotNull(connectionConfiguration, "connectionConfiguration");
 
-            this.serializer = serializer;
             this.consumerFactory = consumerFactory;
             this.logger = logger;
-            this.getCorrelationId = getCorrelationId;
-            this.publisherConfirms = publisherConfirms;
+            this.publisher = publisher;
             this.eventBus = eventBus;
-            this.typeNameSerializer = typeNameSerializer;
             this.handlerCollectionFactory = handlerCollectionFactory;
+            this.container = container;
+            this.connectionConfiguration = connectionConfiguration;
+            this.messageSerializationStrategy = messageSerializationStrategy;
 
             connection = new PersistentConnection(connectionFactory, logger, eventBus);
 
             eventBus.Subscribe<ConnectionCreatedEvent>(e => OnConnected());
             eventBus.Subscribe<ConnectionDisconnectedEvent>(e => OnDisconnected());
+            eventBus.Subscribe<ReturnedMessageEvent>(OnMessageReturned);
 
             clientCommandDispatcher = clientCommandDispatcherFactory.GetClientCommandDispatcher(connection);
         }
 
-        public virtual ISerializer Serializer
-        {
-            get { return serializer; }
-        }
 
-        public IPersistentConnection Connection
-        {
-            get { return connection; }
-        }
-
-        public ITypeNameSerializer TypeNameSerializer 
-        {
-            get { return typeNameSerializer; }
-        }
-
-        public IEasyNetQLogger Logger
-        {
-            get { return logger; }
-        }
-
-        public Func<string> GetCorrelationId
-        {
-            get { return getCorrelationId; }
-        }
 
         // ---------------------------------- consume --------------------------------------
 
         public IDisposable Consume<T>(IQueue queue, Action<IMessage<T>, MessageReceivedInfo> onMessage) where T : class
         {
-            Preconditions.CheckNotNull(queue, "queue");
-            Preconditions.CheckNotNull(onMessage, "onMessage");
-
-            return Consume<T>(queue, (message, info) => TaskHelpers.ExecuteSynchronously(() => onMessage(message, info)));
+            return Consume<T>(queue, onMessage, x => { });
         }
 
-        public virtual IDisposable Consume<T>(IQueue queue, Func<IMessage<T>, MessageReceivedInfo, Task> onMessage) 
-            where T : class
+        public IDisposable Consume<T>(IQueue queue, Action<IMessage<T>, MessageReceivedInfo> onMessage, Action<IConsumerConfiguration> configure) where T : class
         {
             Preconditions.CheckNotNull(queue, "queue");
             Preconditions.CheckNotNull(onMessage, "onMessage");
+            Preconditions.CheckNotNull(configure, "configure");
 
-            return Consume(queue, x => x.Add(onMessage));
+            return Consume<T>(queue, (message, info) => TaskHelpers.ExecuteSynchronously(() => onMessage(message, info)), configure);
         }
 
-        public virtual IDisposable Consume(IQueue queue, Action<IHandlerRegistration> addHandlers) 
+        public virtual IDisposable Consume<T>(IQueue queue, Func<IMessage<T>, MessageReceivedInfo, Task> onMessage)
+            where T : class
+        {
+            return Consume(queue, onMessage, x => { });
+        }
+
+        public IDisposable Consume<T>(IQueue queue, Func<IMessage<T>, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure) where T : class
+        {
+            Preconditions.CheckNotNull(queue, "queue");
+            Preconditions.CheckNotNull(onMessage, "onMessage");
+            Preconditions.CheckNotNull(configure, "configure");
+
+            return Consume(queue, x => x.Add(onMessage), configure);
+        }
+
+        public virtual IDisposable Consume(IQueue queue, Action<IHandlerRegistration> addHandlers)
+        {
+            return Consume(queue, addHandlers, x => { });
+        }
+
+        public IDisposable Consume(IQueue queue, Action<IHandlerRegistration> addHandlers, Action<IConsumerConfiguration> configure)
         {
             Preconditions.CheckNotNull(queue, "queue");
             Preconditions.CheckNotNull(addHandlers, "addHandlers");
+            Preconditions.CheckNotNull(configure, "configure");
 
             var handlerCollection = handlerCollectionFactory.CreateHandlerCollection();
             addHandlers(handlerCollection);
 
-            return Consume(queue, (body, properties, messageRecievedInfo) =>
+            return Consume(queue, (body, properties, messageReceivedInfo) =>
             {
-                var messageType = typeNameSerializer.DeSerialize(properties.Type);
-                var handler = handlerCollection.GetHandler(messageType);
-
-                var messageBody = serializer.BytesToMessage(properties.Type, body);
-                var message = Message.CreateInstance(messageType, messageBody);
-                message.SetProperties(properties);
-                return handler(message, messageRecievedInfo);
-            });
+                var deserializedMessage = messageSerializationStrategy.DeserializeMessage(properties, body);
+                var handler = handlerCollection.GetHandler(deserializedMessage.MessageType);
+                return handler(deserializedMessage.Message, messageReceivedInfo);
+            }, configure);
         }
 
-        public virtual IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage)
-        {      
+        public IDisposable Consume(IQueue queue, Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage)
+        {
+            return Consume(queue, onMessage, x => { });
+        }
+
+        public virtual IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure)
+        {
             Preconditions.CheckNotNull(queue, "queue");
             Preconditions.CheckNotNull(onMessage, "onMessage");
+            Preconditions.CheckNotNull(configure, "configure");
 
             if (disposed)
             {
                 throw new EasyNetQException("This bus has been disposed");
             }
-
-            var consumer = consumerFactory.CreateConsumer(queue, onMessage, connection);
+            var consumerConfiguration = new ConsumerConfiguration(connectionConfiguration.PrefetchCount);
+            configure(consumerConfiguration);
+            var consumer = consumerFactory.CreateConsumer(queue, onMessage, connection, consumerConfiguration);
             return consumer.StartConsuming();
         }
 
         // -------------------------------- publish ---------------------------------------------
 
         public virtual Task PublishAsync(
-            IExchange exchange, 
-            string routingKey, 
-            bool mandatory, 
-            bool immediate, 
-            MessageProperties messageProperties, 
+            IExchange exchange,
+            string routingKey,
+            bool mandatory,
+            bool immediate,
+            MessageProperties messageProperties,
             byte[] body)
         {
             Preconditions.CheckNotNull(exchange, "exchange");
@@ -160,7 +158,7 @@ namespace EasyNetQ
                     var properties = x.CreateBasicProperties();
                     messageProperties.CopyTo(properties);
 
-                    return publisherConfirms.PublishWithConfirm(x,
+                return publisher.Publish(x,
                         m => m.BasicPublish(exchange.Name, routingKey, mandatory, immediate, properties, body));
                 }).Unwrap();
 
@@ -181,16 +179,8 @@ namespace EasyNetQ
             Preconditions.CheckShortString(routingKey, "routingKey");
             Preconditions.CheckNotNull(message, "message");
 
-            var typeName = typeNameSerializer.Serialize(message.Body.GetType());
-            var messageBody = serializer.MessageToBytes(message.Body);
-
-            message.Properties.Type = typeName;
-            message.Properties.CorrelationId =
-                string.IsNullOrEmpty(message.Properties.CorrelationId) ?
-                GetCorrelationId() :
-                message.Properties.CorrelationId;
-
-            return PublishAsync(exchange, routingKey, mandatory, immediate, message.Properties, messageBody);
+            var serializedMessage = messageSerializationStrategy.SerializeMessage(message);
+            return PublishAsync(exchange, routingKey, mandatory, immediate, serializedMessage.Properties, serializedMessage.Body);
         }
 
         public void Publish(IExchange exchange, string routingKey, bool mandatory, bool immediate,
@@ -221,13 +211,14 @@ namespace EasyNetQ
         // ---------------------------------- Exchange / Queue / Binding -----------------------------------
 
         public virtual IQueue QueueDeclare(
-            string name, 
-            bool passive = false, 
-            bool durable = true, 
+            string name,
+            bool passive = false,
+            bool durable = true,
             bool exclusive = false,
             bool autoDelete = false,
             int perQueueTtl = int.MaxValue,
-            int expires = int.MaxValue)
+            int expires = int.MaxValue,
+            string deadLetterExchange = null)
         {
             Preconditions.CheckNotNull(name, "name");
 
@@ -248,16 +239,19 @@ namespace EasyNetQ
                 {
                     arguments.Add("x-expires", expires);
                 }
-
+                if (! string.IsNullOrEmpty(deadLetterExchange))
+                {
+                    arguments.Add("x-dead-letter-exchange", deadLetterExchange);
+                }
                 clientCommandDispatcher.Invoke(
-                    x => x.QueueDeclare(name, durable, exclusive, autoDelete, (IDictionary) arguments)
+                    x => x.QueueDeclare(name, durable, exclusive, autoDelete, arguments)
                     ).Wait();
 
-                logger.DebugWrite("Declared Queue: '{0}' durable:{1}, exclusive:{2}, autoDelte:{3}, args:{4}",
+                logger.DebugWrite("Declared Queue: '{0}' durable:{1}, exclusive:{2}, autoDelete:{3}, args:{4}",
                     name, durable, exclusive, autoDelete, WriteArguments(arguments));
             }
 
-            return new Topology.Queue(name, exclusive);
+            return new Queue(name, exclusive);
         }
 
         private string WriteArguments(IEnumerable<KeyValuePair<string, object>> arguments)
@@ -266,7 +260,7 @@ namespace EasyNetQ
             var first = true;
             foreach (var argument in arguments)
             {
-                if(first)
+                if (first)
                 {
                     first = false;
                 }
@@ -285,7 +279,7 @@ namespace EasyNetQ
             task.Wait();
             var queueDeclareOk = task.Result;
             logger.DebugWrite("Declared Server Generted Queue '{0}'", queueDeclareOk.QueueName);
-            return new Topology.Queue(queueDeclareOk.QueueName, true);
+            return new Queue(queueDeclareOk.QueueName, true);
         }
 
         public virtual void QueueDelete(IQueue queue, bool ifUnused = false, bool ifEmpty = false)
@@ -307,14 +301,15 @@ namespace EasyNetQ
         }
 
         public virtual IExchange ExchangeDeclare(
-            string name, 
-            string type, 
-            bool passive = false, 
-            bool durable = true, 
+            string name,
+            string type,
+            bool passive = false,
+            bool durable = true,
             bool autoDelete = false,
-            bool @internal = false)
+            bool @internal = false,
+            string alternateExchange = null)
         {
-            Preconditions.CheckNotNull(name, "name");
+            Preconditions.CheckShortString(name, "name");
             Preconditions.CheckShortString(type, "type");
 
             if (passive)
@@ -323,7 +318,13 @@ namespace EasyNetQ
             }
             else
             {
-                clientCommandDispatcher.Invoke(x => x.ExchangeDeclare(name, type, durable, autoDelete, null)).Wait();
+                IDictionary<string, object> arguments = null;
+                if (alternateExchange != null)
+                {
+                    arguments = new Dictionary<string, object> { { "alternate-exchange", alternateExchange } };
+                }
+
+                clientCommandDispatcher.Invoke(x => x.ExchangeDeclare(name, type, durable, autoDelete, arguments)).Wait();
                 logger.DebugWrite("Declared Exchange: {0} type:{1}, durable:{2}, autoDelete:{3}",
                     name, type, durable, autoDelete);
             }
@@ -409,9 +410,21 @@ namespace EasyNetQ
             if (Disconnected != null) Disconnected();
         }
 
+        public event Action<byte[], MessageProperties, MessageReturnedInfo> MessageReturned;
+
+        protected void OnMessageReturned(ReturnedMessageEvent args)
+        {
+            if (MessageReturned != null) MessageReturned(args.Body, args.Properties, args.Info);
+        }
+
         public virtual bool IsConnected
         {
             get { return connection.IsConnected; }
+        }
+
+        public IContainer Container
+        {
+            get { return container; }
         }
 
         private bool disposed = false;

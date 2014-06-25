@@ -20,7 +20,7 @@ namespace EasyNetQ
         ushort RequestedHeartbeat { get; }
         ushort PrefetchCount { get; }
         Uri AMQPConnectionString { get; }
-        IDictionary<string, string> ClientProperties { get; }
+        IDictionary<string, object> ClientProperties { get; }
         
         IEnumerable<IHostConfiguration> Hosts { get; }
 
@@ -32,6 +32,9 @@ namespace EasyNetQ
         ushort Timeout { get; }
 
         bool PublisherConfirms { get; }
+        bool PersistentMessages { get; set; }
+
+        bool CancelOnHaFailover { get; }
     }
 
     public interface IHostConfiguration
@@ -50,12 +53,16 @@ namespace EasyNetQ
         public ushort RequestedHeartbeat { get; set; }
         public ushort PrefetchCount { get; set; }
         public Uri AMQPConnectionString { get; set; }
-        public IDictionary<string, string> ClientProperties { get; private set; } 
+        public IDictionary<string, object> ClientProperties { get; private set; } 
 
         public IEnumerable<IHostConfiguration> Hosts { get; set; }
         public SslOption Ssl { get; private set; }
         public ushort Timeout { get; set; }
         public bool PublisherConfirms { get; set; }
+        public bool PersistentMessages { get; set; }
+        public bool CancelOnHaFailover { get; set; }
+        public string Product { get; set; }
+        public string Platform { get; set; }
 
         public ConnectionConfiguration()
         {
@@ -67,6 +74,8 @@ namespace EasyNetQ
             RequestedHeartbeat = 10;
             Timeout = 10; // seconds
             PublisherConfirms = false;
+            PersistentMessages = true;
+            CancelOnHaFailover = false;
 
             // prefetchCount determines how many messages will be allowed in the local in-memory queue
             // setting to zero makes this infinite, but risks an out-of-memory exception.
@@ -79,15 +88,20 @@ namespace EasyNetQ
             Ssl = new SslOption();
         }
 
-        private void SetDefaultClientProperties(IDictionary<string, string> clientProperties)
+        private void SetDefaultClientProperties(IDictionary<string, object> clientProperties)
         {
             var version = Assembly.GetExecutingAssembly().GetName().Version.ToString();
             var applicationNameAndPath = Environment.GetCommandLineArgs()[0];
             var applicationName = Path.GetFileName(applicationNameAndPath);
             var applicationPath = Path.GetDirectoryName(applicationNameAndPath);
             var hostname = Environment.MachineName;
+            var product = Product ?? applicationName;
+            var platform = Platform ?? hostname;
 
             clientProperties.Add("client_api", "EasyNetQ");
+            clientProperties.Add("product", product);
+            clientProperties.Add("platform", platform);
+            clientProperties.Add("version", version);
             clientProperties.Add("easynetq_version", version);
             clientProperties.Add("application", applicationName);
             clientProperties.Add("application_location", applicationPath);
@@ -97,6 +111,7 @@ namespace EasyNetQ
             clientProperties.Add("requested_heartbeat", RequestedHeartbeat.ToString());
             clientProperties.Add("timeout", Timeout.ToString());
             clientProperties.Add("publisher_confirms", PublisherConfirms.ToString());
+            clientProperties.Add("persistent_messages", PersistentMessages.ToString());
         }
 
         public void Validate()
@@ -119,7 +134,7 @@ namespace EasyNetQ
                 }
             }
 
-            ClientProperties = new Dictionary<string, string>();
+            ClientProperties = new Dictionary<string, object>();
             SetDefaultClientProperties(ClientProperties);
         }
     }

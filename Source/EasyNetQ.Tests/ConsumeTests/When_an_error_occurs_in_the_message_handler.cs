@@ -14,6 +14,10 @@ namespace EasyNetQ.Tests.ConsumeTests
 
         protected override void AdditionalSetUp()
         {
+            ConsumerErrorStrategy.Expect(x => x.HandleConsumerError(null, null))
+                     .IgnoreArguments()
+                     .Return(AckStrategies.Ack);
+
             exception = new ApplicationException("I've had a bad day :(");
             StartConsumer((body, properties, info) =>
                 {
@@ -40,8 +44,10 @@ namespace EasyNetQ.Tests.ConsumeTests
                                                            args.Info.DeliverTag == DeliverTag &&
                                                            args.Info.Exchange == "the_exchange" &&
                                                            args.Body == OriginalBody),
-                Arg<Exception>.Matches(ex => ex.InnerException == exception)
-                ));
+                Arg<Exception>.Matches(ex => ex.InnerException == exception)));
+
+            ConsumerErrorStrategy.AssertWasNotCalled(
+                x => x.HandleConsumerCancelled(Arg<ConsumerExecutionContext>.Is.Anything));
         }
 
         [Test]

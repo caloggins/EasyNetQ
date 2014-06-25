@@ -15,7 +15,7 @@ namespace EasyNetQ.Tests.ConnectionString
 
         private const string connectionString =
             "virtualHost=Copa;username=Copa;host=192.168.1.1;password=abc_xyz;port=12345;" + 
-            "requestedHeartbeat=3;prefetchcount=2;timeout=12;publisherConfirms=true";
+            "requestedHeartbeat=3;prefetchcount=2;timeout=12;publisherConfirms=true;cancelOnHaFailover=true";
 
         [SetUp]
         public void SetUp()
@@ -37,6 +37,7 @@ namespace EasyNetQ.Tests.ConnectionString
             connectionConfiguration.PrefetchCount.ShouldEqual(2);
             connectionConfiguration.Timeout.ShouldEqual(12);
             connectionConfiguration.PublisherConfirms.ShouldBeTrue();
+            connectionConfiguration.CancelOnHaFailover.ShouldBeTrue();
         }
 
         [Test]
@@ -49,9 +50,30 @@ namespace EasyNetQ.Tests.ConnectionString
         }
 
         [Test]
+        public void Should_parse_global_persistentMessages()
+        {
+            const string connectionStringWithPersistenMessages = "host=localhost;persistentMessages=false";
+            var connectionConfiguration = connectionStringParser.Parse(connectionStringWithPersistenMessages);
+
+            connectionConfiguration.PersistentMessages.ShouldBeFalse();
+        }
+
+        [Test]
         public void Should_Throw_Exception_OnInvalidAmqp()
         {
             Assert.That(() => connectionStringParser.Parse("amqp=Foo"), Throws.InstanceOf<EasyNetQException>());
+        }
+
+        [Test]
+        public void Should_throw_exception_for_unknown_key_at_the_beginning()
+        {
+            Assert.That(() => connectionStringParser.Parse("unknownKey=true"), Throws.InstanceOf<EasyNetQException>());
+        }
+
+        [Test]
+        public void Should_throw_exception_for_unknown_key_at_the_end()
+        {
+            Assert.That(() => connectionStringParser.Parse("host=localhost;unknownKey=true"), Throws.InstanceOf<EasyNetQException>());
         }
 
         [TestCaseSource("AppendixAExamples")]
