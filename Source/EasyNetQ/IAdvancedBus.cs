@@ -81,7 +81,7 @@ namespace EasyNetQ
         /// receive context. Returns a Task.
         /// </param>
         /// <returns>A disposable to cancel the consumer</returns>
-        IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage);
+        IDisposable Consume(IQueue queue, Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage);
 
         /// <summary>
         /// Consume raw bytes from the queue.
@@ -94,7 +94,7 @@ namespace EasyNetQ
         /// <param name="configure">
         /// Fluent configuration e.g. x => x.WithPriority(10)</param>
         /// <returns>A disposable to cancel the consumer</returns>
-        IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure);
+        IDisposable Consume(IQueue queue, Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure);
 
         /// <summary>
         /// Publish a message as a byte array
@@ -222,6 +222,22 @@ namespace EasyNetQ
         IQueue QueueDeclare(string name, bool passive = false, bool durable = true, bool exclusive = false, bool autoDelete = false, int perQueueTtl = int.MaxValue, int expires = int.MaxValue, string deadLetterExchange = null);
 
         /// <summary>
+        /// Declare a queue. If the queue already exists this method does nothing
+        /// </summary>
+        /// <param name="name">The name of the queue</param>
+        /// <param name="passive">Throw an exception rather than create the queue if it doesn't exist</param>
+        /// <param name="durable">Durable queues remain active when a server restarts.</param>
+        /// <param name="exclusive">Exclusive queues may only be accessed by the current connection, 
+        ///     and are deleted when that connection closes.</param>
+        /// <param name="autoDelete">If set, the queue is deleted when all consumers have finished using it.</param>
+        /// <param name="perQueueTtl">How long a message published to a queue can live before it is discarded by the server.</param>
+        /// <param name="expires">Determines how long a queue can remain unused before it is automatically deleted by the server.</param>
+        /// <param name="deadLetterExchange">Determines an exchange's name can remain unused before it is automatically deleted by the server.</param>
+        /// <returns>The queue</returns>
+        Task<IQueue> QueueDeclareAsync(string name, bool passive = false, bool durable = true, bool exclusive = false, bool autoDelete = false, int perQueueTtl = int.MaxValue, int expires = int.MaxValue, string deadLetterExchange = null);
+
+
+        /// <summary>
         /// Declare a transient server named queue. Note, this queue will only last for duration of the
         /// connection. If there is a connection outage, EasyNetQ will not attempt to recreate
         /// consumers.
@@ -257,6 +273,21 @@ namespace EasyNetQ
         /// <returns>The exchange</returns>
         IExchange ExchangeDeclare(string name, string type, bool passive = false, bool durable = true, bool autoDelete = false, bool @internal = false, string alternateExchange = null);
 
+
+        /// <summary>
+        /// Declare an exchange
+        /// </summary>
+        /// <param name="name">The exchange name</param>
+        /// <param name="type">The type of exchange</param>
+        /// <param name="passive">Throw an exception rather than create the exchange if it doens't exist</param>
+        /// <param name="durable">Durable exchanges remain active when a server restarts.</param>
+        /// <param name="autoDelete">If set, the exchange is deleted when all queues have finished using it.</param>
+        /// <param name="internal">If set, the exchange may not be used directly by publishers, 
+        ///     but only when bound to other exchanges.</param>
+        /// <param name="alternateExchange">Route messages to this exchange if they cannot be routed.</param>
+        /// <returns>The exchange</returns>
+        Task<IExchange> ExchangeDeclareAsync(string name, string type, bool passive = false, bool durable = true, bool autoDelete = false, bool @internal = false, string alternateExchange = null);
+
         /// <summary>
         /// Delete an exchange
         /// </summary>
@@ -274,6 +305,15 @@ namespace EasyNetQ
         IBinding Bind(IExchange exchange, IQueue queue, string routingKey);
 
         /// <summary>
+        /// Bind an exchange to a queue. Does nothing if the binding already exists.
+        /// </summary>
+        /// <param name="exchange">The exchange to bind</param>
+        /// <param name="queue">The queue to bind</param>
+        /// <param name="routingKey">The routing key</param>
+        /// <returns>A binding</returns>
+        Task<IBinding> BindAsync(IExchange exchange, IQueue queue, string routingKey);
+
+        /// <summary>
         /// Bind two exchanges. Does nothing if the binding already exists.
         /// </summary>
         /// <param name="source">The source exchange</param>
@@ -283,10 +323,41 @@ namespace EasyNetQ
         IBinding Bind(IExchange source, IExchange destination, string routingKey);
 
         /// <summary>
+        /// Bind two exchanges. Does nothing if the binding already exists.
+        /// </summary>
+        /// <param name="source">The source exchange</param>
+        /// <param name="destination">The destination exchange</param>
+        /// <param name="routingKey">The routing key</param>
+        /// <returns>A binding</returns>
+        Task<IBinding> BindAsync(IExchange source, IExchange destination, string routingKey);
+
+        /// <summary>
         /// Delete a binding
         /// </summary>
         /// <param name="binding">the binding to delete</param>
         void BindingDelete(IBinding binding);
+
+        /// <summary>
+        /// Get a message from the given queue.
+        /// </summary>
+        /// <typeparam name="T">The message type to get</typeparam>
+        /// <param name="queue">The queue from which to retreive the message</param>
+        /// <returns>An IBasicGetResult.</returns>
+        IBasicGetResult<T> Get<T>(IQueue queue) where T : class;
+
+        /// <summary>
+        /// Get the raw message from the given queue.
+        /// </summary>
+        /// <param name="queue">The queue from which to retreive the message</param>
+        /// <returns>An IBasicGetResult</returns>
+        IBasicGetResult Get(IQueue queue);
+
+        /// <summary>
+        /// Counts messages in the given queue
+        /// </summary>
+        /// <param name="queue">The queue in which to count messages</param>
+        /// <returns>The number of counted messages</returns>
+        uint MessageCount(IQueue queue);
 
         /// <summary>
         /// True if the bus is connected, False if it is not.
@@ -302,6 +373,16 @@ namespace EasyNetQ
         /// Event fires when the bus disconnects
         /// </summary>
         event Action Disconnected;
+
+        /// <summary>
+        /// Event fires when the bus gets blocked due to the broker running low on resources.
+        /// </summary>
+        event Action Blocked;
+
+        /// <summary>
+        /// Event fires when the bus is unblocked.
+        /// </summary>
+        event Action Unblocked;
 
         /// <summary>
         /// Event fires when a mandatory or immediate message is returned as un-routable

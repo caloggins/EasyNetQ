@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using EasyNetQ.Consumer;
 using EasyNetQ.Events;
+using EasyNetQ.Interception;
 using EasyNetQ.Producer;
 using EasyNetQ.Topology;
 
@@ -19,7 +20,8 @@ namespace EasyNetQ
         private readonly IEventBus eventBus;
         private readonly IHandlerCollectionFactory handlerCollectionFactory;
         private readonly IContainer container;
-        private readonly IConnectionConfiguration connectionConfiguration;
+        private readonly ConnectionConfiguration connectionConfiguration;
+        private readonly IProduceConsumeInterceptor produceConsumeInterceptor;
         private readonly IMessageSerializationStrategy messageSerializationStrategy;
 
         public RabbitAdvancedBus(
@@ -31,7 +33,8 @@ namespace EasyNetQ
             IEventBus eventBus,
             IHandlerCollectionFactory handlerCollectionFactory,
             IContainer container,
-            IConnectionConfiguration connectionConfiguration,
+            ConnectionConfiguration connectionConfiguration,
+            IProduceConsumeInterceptor produceConsumeInterceptor,
             IMessageSerializationStrategy messageSerializationStrategy)
         {
             Preconditions.CheckNotNull(connectionFactory, "connectionFactory");
@@ -43,6 +46,7 @@ namespace EasyNetQ
             Preconditions.CheckNotNull(container, "container");
             Preconditions.CheckNotNull(messageSerializationStrategy, "messageSerializationStrategy");
             Preconditions.CheckNotNull(connectionConfiguration, "connectionConfiguration");
+            Preconditions.CheckNotNull(produceConsumeInterceptor, "produceConsumeInterceptor");
 
             this.consumerFactory = consumerFactory;
             this.logger = logger;
@@ -51,12 +55,15 @@ namespace EasyNetQ
             this.handlerCollectionFactory = handlerCollectionFactory;
             this.container = container;
             this.connectionConfiguration = connectionConfiguration;
+            this.produceConsumeInterceptor = produceConsumeInterceptor;
             this.messageSerializationStrategy = messageSerializationStrategy;
 
             connection = new PersistentConnection(connectionFactory, logger, eventBus);
 
             eventBus.Subscribe<ConnectionCreatedEvent>(e => OnConnected());
             eventBus.Subscribe<ConnectionDisconnectedEvent>(e => OnDisconnected());
+            eventBus.Subscribe<ConnectionBlockedEvent>(e => OnBlocked());
+            eventBus.Subscribe<ConnectionUnblockedEvent>(e => OnUnblocked());
             eventBus.Subscribe<ReturnedMessageEvent>(OnMessageReturned);
 
             clientCommandDispatcher = clientCommandDispatcherFactory.GetClientCommandDispatcher(connection);
@@ -122,7 +129,7 @@ namespace EasyNetQ
             return Consume(queue, onMessage, x => { });
         }
 
-        public virtual IDisposable Consume(IQueue queue, Func<Byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure)
+        public virtual IDisposable Consume(IQueue queue, Func<byte[], MessageProperties, MessageReceivedInfo, Task> onMessage, Action<IConsumerConfiguration> configure)
         {
             Preconditions.CheckNotNull(queue, "queue");
             Preconditions.CheckNotNull(onMessage, "onMessage");
@@ -134,7 +141,11 @@ namespace EasyNetQ
             }
             var consumerConfiguration = new ConsumerConfiguration(connectionConfiguration.PrefetchCount);
             configure(consumerConfiguration);
-            var consumer = consumerFactory.CreateConsumer(queue, onMessage, connection, consumerConfiguration);
+            var consumer = consumerFactory.CreateConsumer(queue, (body, properties, receviedInfo) =>
+                {
+                    var rawMessage = produceConsumeInterceptor.OnConsume(new RawMessage(properties, body));
+                    return onMessage(rawMessage.Body, rawMessage.Properties, receviedInfo);
+                }, connection, consumerConfiguration);
             return consumer.StartConsuming();
         }
 
@@ -153,19 +164,20 @@ namespace EasyNetQ
             Preconditions.CheckNotNull(messageProperties, "messageProperties");
             Preconditions.CheckNotNull(body, "body");
 
-            var task = clientCommandDispatcher.Invoke(x =>
+            var rawMessage = produceConsumeInterceptor.OnProduce(new RawMessage(messageProperties, body));
+
+            return clientCommandDispatcher.Invoke(x =>
                 {
                     var properties = x.CreateBasicProperties();
-                    messageProperties.CopyTo(properties);
+                    rawMessage.Properties.CopyTo(properties);
 
-                return publisher.Publish(x,
-                        m => m.BasicPublish(exchange.Name, routingKey, mandatory, immediate, properties, body));
+                    return publisher.Publish(x, m => m.BasicPublish(exchange.Name, routingKey, mandatory, immediate, properties, rawMessage.Body))
+                                    .Then(() =>
+                                        {
+                                            eventBus.Publish(new PublishedMessageEvent(exchange.Name, routingKey, rawMessage.Properties, rawMessage.Body));
+                                            logger.DebugWrite("Published to exchange: '{0}', routing key: '{1}', correlationId: '{2}'", exchange.Name, routingKey, messageProperties.CorrelationId);
+                                        });
                 }).Unwrap();
-
-            logger.DebugWrite("Published to exchange: '{0}', routing key: '{1}', correlationId: '{2}'",
-                exchange.Name, routingKey, messageProperties.CorrelationId);
-
-            return task;
         }
 
         public virtual Task PublishAsync<T>(
@@ -220,38 +232,45 @@ namespace EasyNetQ
             int expires = int.MaxValue,
             string deadLetterExchange = null)
         {
+            return QueueDeclareAsync(name, passive, durable, exclusive, autoDelete, perQueueTtl, expires, deadLetterExchange).Result;
+        }
+
+        public Task<IQueue> QueueDeclareAsync(string name, bool passive = false, bool durable = true, bool exclusive = false, bool autoDelete = false, int perQueueTtl = Int32.MaxValue, int expires = Int32.MaxValue, string deadLetterExchange = null)
+        {
             Preconditions.CheckNotNull(name, "name");
 
-            IDictionary<string, object> arguments = new Dictionary<string, object>();
             if (passive)
             {
-                clientCommandDispatcher.Invoke(
-                    x => x.QueueDeclarePassive(name)).Wait();
+                return clientCommandDispatcher.Invoke(x => x.QueueDeclarePassive(name))
+                    .Then(() => (IQueue) new Queue(name, exclusive));
             }
-            else
+            IDictionary<string, object> arguments = new Dictionary<string, object>();
+            
+            if (perQueueTtl != int.MaxValue)
             {
-                if (perQueueTtl != int.MaxValue)
-                {
-                    arguments.Add("x-message-ttl", perQueueTtl);
-                }
-
-                if (expires != int.MaxValue)
-                {
-                    arguments.Add("x-expires", expires);
-                }
-                if (! string.IsNullOrEmpty(deadLetterExchange))
-                {
-                    arguments.Add("x-dead-letter-exchange", deadLetterExchange);
-                }
-                clientCommandDispatcher.Invoke(
-                    x => x.QueueDeclare(name, durable, exclusive, autoDelete, arguments)
-                    ).Wait();
-
-                logger.DebugWrite("Declared Queue: '{0}' durable:{1}, exclusive:{2}, autoDelete:{3}, args:{4}",
-                    name, durable, exclusive, autoDelete, WriteArguments(arguments));
+                arguments.Add("x-message-ttl", perQueueTtl);
             }
 
-            return new Queue(name, exclusive);
+            if (expires != int.MaxValue)
+            {
+                arguments.Add("x-expires", expires);
+            }
+            if (!string.IsNullOrEmpty(deadLetterExchange))
+            {
+                arguments.Add("x-dead-letter-exchange", deadLetterExchange);
+            }
+
+            return clientCommandDispatcher.Invoke(
+                x => x.QueueDeclare(name, durable, exclusive, autoDelete, arguments)
+                ).Then(() =>
+                    {
+                        logger.DebugWrite("Declared Queue: '{0}' durable:{1}, exclusive:{2}, autoDelete:{3}, args:{4}",
+                            name, durable, exclusive, autoDelete, WriteArguments(arguments));
+
+                        return (IQueue) new Queue(name, exclusive);
+                    });
+
+            
         }
 
         private string WriteArguments(IEnumerable<KeyValuePair<string, object>> arguments)
@@ -309,28 +328,43 @@ namespace EasyNetQ
             bool @internal = false,
             string alternateExchange = null)
         {
+
+            return ExchangeDeclareAsync(name, type, passive, durable, autoDelete, @internal, alternateExchange).Result;
+        }
+
+        public Task<IExchange> ExchangeDeclareAsync(
+            string name, 
+            string type, 
+            bool passive = false, 
+            bool durable = true, 
+            bool autoDelete = false, 
+            bool @internal = false, 
+            string alternateExchange = null)
+        {
             Preconditions.CheckShortString(name, "name");
             Preconditions.CheckShortString(type, "type");
 
             if (passive)
             {
-                clientCommandDispatcher.Invoke(x => x.ExchangeDeclarePassive(name)).Wait();
+                return clientCommandDispatcher.Invoke(x => x.ExchangeDeclarePassive(name))
+                    .Then(() => (IExchange)new Exchange(name));
             }
-            else
+
+            IDictionary<string, object> arguments = null;
+            if (alternateExchange != null)
             {
-                IDictionary<string, object> arguments = null;
-                if (alternateExchange != null)
-                {
-                    arguments = new Dictionary<string, object> { { "alternate-exchange", alternateExchange } };
-                }
-
-                clientCommandDispatcher.Invoke(x => x.ExchangeDeclare(name, type, durable, autoDelete, arguments)).Wait();
-                logger.DebugWrite("Declared Exchange: {0} type:{1}, durable:{2}, autoDelete:{3}",
-                    name, type, durable, autoDelete);
+                arguments = new Dictionary<string, object> { { "alternate-exchange", alternateExchange } };
             }
 
-            return new Exchange(name);
-        }
+            return clientCommandDispatcher.Invoke(x => x.ExchangeDeclare(name, type, durable, autoDelete, arguments))
+                .Then(() =>
+                    {
+                        logger.DebugWrite("Declared Exchange: {0} type:{1}, durable:{2}, autoDelete:{3}",
+                              name, type, durable, autoDelete);
+
+                        return (IExchange)new Exchange(name);
+                    });
+       }
 
         public virtual void ExchangeDelete(IExchange exchange, bool ifUnused = false)
         {
@@ -352,6 +386,21 @@ namespace EasyNetQ
             return new Binding(queue, exchange, routingKey);
         }
 
+        public Task<IBinding> BindAsync(IExchange exchange, IQueue queue, string routingKey)
+        {
+            Preconditions.CheckNotNull(exchange, "exchange");
+            Preconditions.CheckNotNull(queue, "queue");
+            Preconditions.CheckShortString(routingKey, "routingKey");
+
+            return clientCommandDispatcher.Invoke(x => x.QueueBind(queue.Name, exchange.Name, routingKey))
+                .Then(() =>
+                    {
+                        logger.DebugWrite("Bound queue {0} to exchange {1} with routing key {2}",
+                            queue.Name, exchange.Name, routingKey);
+                        return (IBinding)new Binding(queue, exchange, routingKey);
+                    });
+        }
+
         public virtual IBinding Bind(IExchange source, IExchange destination, string routingKey)
         {
             Preconditions.CheckNotNull(source, "source");
@@ -363,6 +412,22 @@ namespace EasyNetQ
             logger.DebugWrite("Bound destination exchange {0} to source exchange {1} with routing key {2}",
                 destination.Name, source.Name, routingKey);
             return new Binding(destination, source, routingKey);
+        }
+
+        public Task<IBinding> BindAsync(IExchange source, IExchange destination, string routingKey)
+        {
+            Preconditions.CheckNotNull(source, "source");
+            Preconditions.CheckNotNull(destination, "destination");
+            Preconditions.CheckShortString(routingKey, "routingKey");
+
+            return clientCommandDispatcher.Invoke(x => x.ExchangeBind(destination.Name, source.Name, routingKey))
+                                          .Then(() =>
+                                              {
+                                                  logger.DebugWrite("Bound destination exchange {0} to source exchange {1} with routing key {2}",
+                                                      destination.Name, source.Name, routingKey);
+                                                  return (IBinding)new Binding(destination, source, routingKey);
+                                              });
+
         }
 
         public virtual void BindingDelete(IBinding binding)
@@ -394,6 +459,68 @@ namespace EasyNetQ
             }
         }
 
+        public IBasicGetResult<T> Get<T>(IQueue queue) where T : class
+        {
+            Preconditions.CheckNotNull(queue, "queue");
+            var result = Get(queue);
+            if (result == null || result.Body == null)
+            {
+                logger.DebugWrite("... but no message was available on queue '{0}'", queue.Name);
+                return new BasicGetResult<T>();
+            }
+            else
+            {
+                var message = messageSerializationStrategy.DeserializeMessage(result.Properties, result.Body);
+                if (message.MessageType == typeof (T))
+                {
+                    return new BasicGetResult<T>(message.Message);
+                }
+                else
+                {
+                    logger.ErrorWrite("Incorrect message type returned from Get." + 
+                        "Expected {0}, but was {1}", typeof(T).Name, message.MessageType.Name);
+                    throw new EasyNetQException("Incorrect message type returned from Get." + 
+                        "Expected {0}, but was {1}", typeof(T).Name, message.MessageType.Name);
+                }
+            }
+        }
+
+        public IBasicGetResult Get(IQueue queue)
+        {
+            Preconditions.CheckNotNull(queue, "queue");
+
+            var task = clientCommandDispatcher.Invoke(x => x.BasicGet(queue.Name, true));
+            task.Wait();
+            var result = task.Result;
+            if (result == null) return null;
+            var getResult = new BasicGetResult(
+                result.Body,
+                new MessageProperties(result.BasicProperties),
+                new MessageReceivedInfo(
+                    "",
+                    result.DeliveryTag,
+                    result.Redelivered,
+                    result.Exchange,
+                    result.RoutingKey,
+                    queue.Name
+                    )
+                );
+
+            logger.DebugWrite("Message Get from queue '{0}'", queue.Name);
+
+            return getResult;
+        }
+
+        public uint MessageCount(IQueue queue)
+        {
+            Preconditions.CheckNotNull(queue, "queue");
+            var task = clientCommandDispatcher.Invoke(x => x.QueueDeclarePassive(queue.Name));
+            task.Wait();
+            var messageCount = task.Result.MessageCount;
+            logger.DebugWrite("{0} messages in queue '{1}'", messageCount, queue.Name);
+            return messageCount;
+        }
+
         //------------------------------------------------------------------------------------------
 
         public virtual event Action Connected;
@@ -408,6 +535,22 @@ namespace EasyNetQ
         protected void OnDisconnected()
         {
             if (Disconnected != null) Disconnected();
+        }
+
+        public virtual event Action Blocked;
+
+        protected void OnBlocked()
+        {
+            var blocked = Blocked;
+            if (blocked != null) blocked();
+        }
+
+        public virtual event Action Unblocked;
+
+        protected void OnUnblocked()
+        {
+            var unblocked = Unblocked;
+            if (unblocked != null) unblocked();
         }
 
         public event Action<byte[], MessageProperties, MessageReturnedInfo> MessageReturned;

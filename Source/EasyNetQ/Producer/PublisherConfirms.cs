@@ -21,12 +21,11 @@ namespace EasyNetQ.Producer
     public class PublisherConfirms : PublisherBase
     {
         private readonly IEasyNetQLogger logger;
-        private readonly IDictionary<ulong, ConfirmActions> dictionary = 
-            new ConcurrentDictionary<ulong, ConfirmActions>();
+        private readonly IDictionary<ulong, ConfirmActions> dictionary = new ConcurrentDictionary<ulong, ConfirmActions>();
 
         private readonly int timeoutSeconds;
 
-        public PublisherConfirms(IConnectionConfiguration configuration, IEasyNetQLogger logger, IEventBus eventBus) : base (eventBus)
+        public PublisherConfirms(ConnectionConfiguration configuration, IEasyNetQLogger logger, IEventBus eventBus) : base (eventBus)
         {
             Preconditions.CheckNotNull(configuration, "configuration");
             Preconditions.CheckNotNull(logger, "logger");
@@ -162,7 +161,20 @@ namespace EasyNetQ.Producer
                     TaskCompletionSource = tcs
                 });
 
-            publishAction(model);
+            try
+            {
+                //execute publish
+                publishAction(model);
+            }
+            catch(Exception ex)
+            {
+                //return fault when publish action can't be executed
+                logger.ErrorWrite("Publish Failed. Sequence number: {0}. Exception: {1}", sequenceNumber, ex);
+                timer.Dispose();
+                dictionary.Remove(sequenceNumber);
+                tcs.TrySetException(ex);
+            }
+            
 
             return tcs.Task;
         }

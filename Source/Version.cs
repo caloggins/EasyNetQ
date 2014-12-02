@@ -2,11 +2,32 @@
 using System.Reflection;
 
 // EasyNetQ version number: <major>.<minor>.<non-breaking-feature>.<build>
-[assembly: AssemblyVersion("0.33.1.0")]
+[assembly: AssemblyVersion("0.39.0.0")]
 [assembly: CLSCompliant(true)]
 
 // Note: until version 1.0 expect breaking changes on 0.X versions.
-
+// 0.39.0.0 Added SendAsync
+// 0.38.2.0 RandomHostSelectionStrategy is default hosts selection strategy
+// 0.38.1.0 Configuration of rpc timeout  
+// 0.38.0.0 ILMerging to remove the potentially conflicting dependency on System.Collections.Immutable.Net40 from the NuGet
+// 0.37.3.0 Remove POCO interfaces IConnectionConfiguration and IHostConfiguration
+// 0.37.2.0 Upgrade to RabbitMQ.Client 3.4.0
+// 0.37.1.0 AutoSubscriber Subscribe and SubscribeAsync support loading consumers from an array of types
+// 0.37.0.0 Added MessageCount method to AdvancedBus
+// 0.36.5.0 Make DefaultConsumerErrorStrategy thread-safe
+// 0.36.4.0 Fixed EasyNetQ.nuspec by adding the dependency on System.Collections.Immutable.Net40
+// 0.36.3.0 PublishedMessageEvent, DeliveredMessageEvent
+// 0.36.2.0 Fixed threading issue in EventBus
+// 0.36.1.0 Updated Json.Net to the latest version
+// 0.36.0.0 Support for blocked connection notifications
+// 0.35.5.0 Basic implementation of produce-consumer interception
+// 0.35.4.0 Future publish refactor: introduced IScheduler interface.
+// 0.35.3.0 Infinite timeout. (set timeout to 0)
+// 0.35.2.0 Attributes caching + Exception handling around responder function, to avoid timeout on the client when the exception is thrown before the task is returned.
+// 0.35.1.0 Configure request for ManagementClient
+// 0.35.0.0 Use ILRepack to internally merge Newtonsoft.Json
+// 0.34.0.0 basic.get added to advanced bus: IAdvancedBus.Get<T>(IQueue queue)
+// 0.33.2.0 x-expires now can be configured while subscribe, using the fluent interface method x => x.WithExpires(int)
 // 0.33.1.0 NinjectAdapter cannot handle first-to-register behavior, Ninject cannot handle registration of Func<>. Added ICorrelationIdGenerationStrategy, and DefaultCorrelationIdGenerationStrategy.
 // 0.33.0.0 x-cancel-on-ha-failover is now false by default and can be configured with the cancelOnHaFailover connection string value and with the fluent interface method WithCancelOnHaFailover. If you set on connection string, it can't be overridden by the fluent method, instead if you leave it disabled from connection string, you can manage the behavior per consumer with the fluent interface. Possible breaking change for whom they was expecting a consumer shutdown after a cluster HA fail-over, now the consumer will be redeclared and continue to consume.
 // 0.32.3.0 RabbitMQ.Client version 3.3.2

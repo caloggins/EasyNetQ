@@ -13,9 +13,10 @@ namespace EasyNetQ
         private readonly IConventions conventions;
         private readonly IAdvancedBus advancedBus;
         private readonly IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy;
+        private readonly IMessageDeliveryModeStrategy messageDeliveryModeStrategy;
         private readonly IRpc rpc;
         private readonly ISendReceive sendReceive;
-        private readonly IConnectionConfiguration connectionConfiguration;
+        private readonly ConnectionConfiguration connectionConfiguration;
 
         public IEasyNetQLogger Logger
         {
@@ -32,9 +33,10 @@ namespace EasyNetQ
             IConventions conventions,
             IAdvancedBus advancedBus,
             IPublishExchangeDeclareStrategy publishExchangeDeclareStrategy,
+            IMessageDeliveryModeStrategy messageDeliveryModeStrategy,
             IRpc rpc,
             ISendReceive sendReceive,
-            IConnectionConfiguration connectionConfiguration)
+            ConnectionConfiguration connectionConfiguration)
         {
             Preconditions.CheckNotNull(logger, "logger");
             Preconditions.CheckNotNull(conventions, "conventions");
@@ -48,6 +50,7 @@ namespace EasyNetQ
             this.conventions = conventions;
             this.advancedBus = advancedBus;
             this.publishExchangeDeclareStrategy = publishExchangeDeclareStrategy;
+            this.messageDeliveryModeStrategy = messageDeliveryModeStrategy;
             this.rpc = rpc;
             this.sendReceive = sendReceive;
             this.connectionConfiguration = connectionConfiguration;
@@ -82,13 +85,12 @@ namespace EasyNetQ
         {
             Preconditions.CheckNotNull(message, "message");
             Preconditions.CheckNotNull(topic, "topic");
-
-            var exchange = publishExchangeDeclareStrategy.DeclareExchange(advancedBus, typeof(T), ExchangeType.Topic);
-            var easyNetQMessage = new Message<T>(message);
-
-            easyNetQMessage.Properties.DeliveryMode = (byte)(connectionConfiguration.PersistentMessages ? 2 : 1);
-
-            return advancedBus.PublishAsync(exchange, topic, false, false, easyNetQMessage);
+            var messageType = typeof (T);
+            return publishExchangeDeclareStrategy.DeclareExchangeAsync(advancedBus, messageType, ExchangeType.Topic).Then(exchange =>
+                {
+                    var easyNetQMessage = new Message<T>(message) { Properties = { DeliveryMode = (byte)(messageDeliveryModeStrategy.IsPersistent(messageType) ? 2 : 1) } };
+                    return advancedBus.PublishAsync(exchange, topic, false, false, easyNetQMessage); 
+                });
         }
 
         public virtual IDisposable Subscribe<T>(string subscriptionId, Action<T> onMessage) where T : class
@@ -136,7 +138,7 @@ namespace EasyNetQ
             var queueName = conventions.QueueNamingConvention(typeof(T), subscriptionId);
             var exchangeName = conventions.ExchangeNamingConvention(typeof(T));
 
-            var queue = advancedBus.QueueDeclare(queueName, autoDelete: configuration.AutoDelete);
+            var queue = advancedBus.QueueDeclare(queueName, autoDelete: configuration.AutoDelete, expires: configuration.Expires);
             var exchange = advancedBus.ExchangeDeclare(exchangeName, ExchangeType.Topic);
 
             foreach (var topic in configuration.Topics.AtLeastOneWithDefault("#"))
@@ -197,6 +199,12 @@ namespace EasyNetQ
             where T : class
         {
             sendReceive.Send(queue, message);
+        }
+
+        public virtual void SendAsync<T>(string queue, T message)
+            where T : class
+        {
+            sendReceive.SendAsync(queue, message);
         }
 
         public virtual IDisposable Receive<T>(string queue, Action<T> onMessage)

@@ -1,5 +1,5 @@
-﻿using System;
-using EasyNetQ.Consumer;
+﻿using EasyNetQ.Consumer;
+using EasyNetQ.Interception;
 using EasyNetQ.Loggers;
 using EasyNetQ.Producer;
 
@@ -26,10 +26,13 @@ namespace EasyNetQ
                 .Register<ITypeNameSerializer, TypeNameSerializer>()
                 .Register<ICorrelationIdGenerationStrategy, DefaultCorrelationIdGenerationStrategy>()                
                 .Register<IMessageSerializationStrategy, DefaultMessageSerializationStrategy>()
-                .Register<IClusterHostSelectionStrategy<ConnectionFactoryInfo>, DefaultClusterHostSelectionStrategy<ConnectionFactoryInfo>>()
+                .Register<IMessageDeliveryModeStrategy, MessageDeliveryModeStrategy>()
+                .Register<ITimeoutStrategy, TimeoutStrategy>()
+                .Register<IClusterHostSelectionStrategy<ConnectionFactoryInfo>, RandomClusterHostSelectionStrategy<ConnectionFactoryInfo>>()
+                .Register<IProduceConsumeInterceptor, DefaultInterceptor>()
                 .Register<IConsumerDispatcherFactory, ConsumerDispatcherFactory>()
                 .Register<IPublishExchangeDeclareStrategy, PublishExchangeDeclareStrategy>()
-                .Register(sp => PublisherFactory.CreatePublisher(sp.Resolve<IConnectionConfiguration>(), sp.Resolve<IEasyNetQLogger>(), sp.Resolve<IEventBus>()))
+                .Register(sp => PublisherFactory.CreatePublisher(sp.Resolve<ConnectionConfiguration>(), sp.Resolve<IEasyNetQLogger>(), sp.Resolve<IEventBus>()))
                 .Register<IConsumerErrorStrategy, DefaultConsumerErrorStrategy>()
                 .Register<IHandlerRunner, HandlerRunner>()
                 .Register<IInternalConsumerFactory, InternalConsumerFactory>()
@@ -41,6 +44,7 @@ namespace EasyNetQ
                 .Register<IAdvancedBus, RabbitAdvancedBus>()
                 .Register<IRpc, Rpc>()
                 .Register<ISendReceive, SendReceive>()
+                .Register<IScheduler, Scheduler>()
                 .Register<IBus, RabbitBus>();
         }
          

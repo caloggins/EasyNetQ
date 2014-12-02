@@ -117,6 +117,47 @@ namespace EasyNetQ.Tests.Integration
 
             Thread.Sleep(1000);
         }
+
+        [Test, Explicit]
+        public void Should_be_able_to_get_a_message()
+        {
+            var queue = advancedBus.QueueDeclare("get_test");
+            advancedBus.Publish(Exchange.GetDefault(), "get_test", false, false,
+                new Message<MyMessage>(new MyMessage { Text = "Oh! Hello!" }));
+
+            var getResult = advancedBus.Get<MyMessage>(queue);
+
+            if (getResult.MessageAvailable)
+            {
+                Console.Out.WriteLine("Got message: {0}", getResult.Message.Body.Text);
+            }
+            else
+            {
+                Console.Out.WriteLine("Failed to get message!");
+            }
+        }
+
+        [Test, Explicit]
+        public void Should_set_MessageAvailable_to_false_when_queue_is_empty()
+        {
+            var queue = advancedBus.QueueDeclare("get_empty_queue_test");
+            var getResult = advancedBus.Get<MyMessage>(queue);
+
+            if (!getResult.MessageAvailable)
+            {
+                Console.Out.WriteLine("Failed to get message!");
+            }
+        }
+
+        [Test, Explicit]
+        public void Should_be_able_to_get_queue_length()
+        {
+            var queue = advancedBus.QueueDeclare("count_test");
+            advancedBus.Publish(Exchange.GetDefault(), "count_test", false, false,
+                new Message<MyMessage>(new MyMessage { Text = "Oh! Hello!" }));
+            uint messageCount = advancedBus.MessageCount(queue);
+            Console.WriteLine("{0} messages in queue", messageCount);
+        }
     }
 }
 
